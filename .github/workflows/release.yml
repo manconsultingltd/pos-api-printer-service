@@ -8,12 +8,6 @@ name: Release
 on:
   push:
     branches: [main]
-  # TEMPORARY (remove once the Windows NSIS build is confirmed green): let the
-  # build jobs run against a PR branch, or be kicked off by hand, so the Windows
-  # installer can be verified before merge. On these events the publish/tag step
-  # is skipped — only the installers are built and uploaded as artifacts.
-  pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -40,12 +34,7 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          # TEMPORARY: on a PR / manual run we always build (to verify the
-          # installers) — the publish step itself is push-only, so no tag is cut.
-          if [ "${{ github.event_name }}" != "push" ]; then
-            echo "Event '${{ github.event_name }}' — building installers for verification (no publish)."
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-          elif git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
             echo "Tag v$VERSION already exists — nothing to release."
             echo "needed=false" >> "$GITHUB_OUTPUT"
           else
@@ -203,10 +192,7 @@ jobs:
   # ── Publish the GitHub Release with both installers attached ────────────────
   release:
     needs: [version, build-linux, build-windows]
-    # Publish/tag only on a real merge to main — PR and manual runs stop after
-    # building + uploading the installer artifacts (TEMPORARY: the event guard
-    # comes out with the pull_request/workflow_dispatch triggers above).
-    if: needs.version.outputs.needed == 'true' && github.event_name == 'push'
+    if: needs.version.outputs.needed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
