@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<pkg-info format-version="2"
+          identifier="com.posawesome.api-printer"
+          version="1.0.0"
+          install-location="/"
+          auth="root">
+    <payload numberOfFiles="0" installKBytes="0"/>
+    <scripts>
+        <preinstall  file="./preinstall"/>
+        <postinstall file="./postinstall"/>
+    </scripts>
+</pkg-info>

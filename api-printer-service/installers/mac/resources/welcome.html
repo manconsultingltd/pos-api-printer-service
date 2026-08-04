@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: -apple-system, Helvetica, sans-serif; font-size: 13px;
+         color: #1d1d1f; margin: 20px; }
+  h2   { color: #1a2a4a; margin-bottom: 8px; }
+  ul   { padding-left: 20px; }
+  li   { margin-bottom: 4px; }
+  .note { color: #555; font-size: 12px; margin-top: 14px; }
+</style>
+</head>
+<body>
+  <h2>Welcome to the API Printer Service Installer</h2>
+
+  <p>This package will install <strong>API Printer Service v1.0</strong> on your Mac.</p>
+
+  <p>The service provides a local REST API on port <strong>5058</strong> that allows
+  POSAwesome to send receipts directly to CUPS-managed thermal printers — faster
+  and without opening a browser print dialog.</p>
+
+  <p><strong>What gets installed:</strong></p>
+  <ul>
+    <li>Service runtime →
+        <code>/Library/Application Support/api-printer-service/</code></li>
+    <li>LaunchDaemon (auto-starts at boot) →
+        <code>/Library/LaunchDaemons/com.posawesome.api-printer.plist</code></li>
+    <li>Control panel app →
+        <code>/Applications/API Printer Service.app</code>
+        (opens the web UI at <code>http://localhost:5058/</code>)</li>
+  </ul>
+
+  <p><strong>Requirements:</strong> macOS 11 (Big Sur) or later, Intel or Apple
+  Silicon. Python 3 must be available — install it with
+  <code>brew install python</code> or <code>xcode-select --install</code>.</p>
+
+  <p class="note">Administrator password is required. Click <strong>Continue</strong> to proceed.</p>
+</body>
+</html>

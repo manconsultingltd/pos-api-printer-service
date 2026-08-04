@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=API Printer Service
+GenericName=Thermal Printer Control
+Comment=Control panel for the API Printer Service
+Comment[es]=Panel de control del servicio de impresión API
+Exec=/usr/bin/api-printer-gui
+Icon=printer
+Terminal=false
+Categories=Office;Printing;Utility;
+Keywords=printer;thermal;receipt;pos;cups;
+StartupNotify=true
+X-GNOME-Autostart-enabled=true

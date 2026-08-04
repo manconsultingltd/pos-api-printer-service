@@ -1,0 +1,29 @@
+# API Printer Service - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# FastAPI web framework
+fastapi==0.104.1
+
+# ASGI server for FastAPI
+uvicorn[standard]==0.24.0
+
+# Data validation
+pydantic==2.5.0
+
+# HTTP client (for testing)
+httpx==0.25.1
+
+# Logging (enhanced)
+python-json-logger==2.0.7
+
+# HTML parsing (for /api/print-html endpoint)
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# Windows printing support (only installed on Windows)
+pywin32==306; sys_platform == "win32"
+
+# System tray + icon generation for the Windows Control Panel GUI
+# (Linux uses AppIndicator from gi, so these are Windows-only)
+pystray==0.19.5; sys_platform == "win32"
+Pillow==11.0.0; sys_platform == "win32"

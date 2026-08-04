@@ -1,0 +1,233 @@
+"""
+HtmlReceiptParser: modeled-mode extraction, literal data-print pass-through
+blocks, and full literal print mode.
+"""
+
+import pytest
+
+from html_parser import HtmlReceiptParser
+from fixtures import (
+    DATA_PRINT_HTML,
+    ENGLISH_HTML,
+    LITERAL_HTML,
+)
+
+
+@pytest.fixture
+def parser():
+    return HtmlReceiptParser()
+
+
+# === Modeled mode: structured extraction, fixed English labels ===
+
+
+class TestEnglishReceipt:
+    @pytest.fixture(autouse=True)
+    def _parse(self, parser):
+        self.result = parser.parse(ENGLISH_HTML)
+
+    def test_english_labels_are_fixed(self):
+        assert self.result["invoice_label"] == "Invoice"
+        assert self.result["total_label"] == "TOTAL"
+        assert self.result["change_label"] == "Change"
+
+    def test_fields(self):
+        assert self.result["company"] == "ACME Store"
+        assert self.result["invoice_number"] == "INV-001"
+        assert self.result["date"] == "2026-07-15 10:00:00"
+        assert self.result["customer"] == "John Doe"
+
+    def test_items(self):
+        assert self.result["items"] == [
+            {"name": "Widget", "qty": 2.0, "rate": 10.00, "amount": 20.00}
+        ]
+
+    def test_totals_and_taxes(self):
+        assert self.result["net_total"] == 20.00
+        assert self.result["total"] == 22.00
+        assert self.result["taxes"] == [{"description": "Tax", "amount": 2.00}]
+        assert self.result["change"] == 3.00
+
+    def test_footer(self):
+        assert self.result["footer_lines"][0].startswith("Thank you")
+
+    def test_no_print_blocks(self):
+        assert self.result["print_blocks"] == {
+            "header": [],
+            "fiscal": [],
+            "footer": [],
+        }
+
+    def test_not_literal(self):
+        assert "literal_lines" not in self.result
+
+
+# === Literal data-print pass-through blocks (modeled invoice + extras) ===
+
+
+class TestDataPrintBlocks:
+    @pytest.fixture(autouse=True)
+    def _parse(self, parser):
+        self.result = parser.parse(DATA_PRINT_HTML)
+
+    def test_invoice_still_modeled(self):
+        assert self.result["company"] == "ACME Store"
+        assert self.result["invoice_number"] == "INV-100"
+        assert self.result["total"] == 23.00
+        assert self.result["taxes"] == [{"description": "Tax 15%", "amount": 3.00}]
+        assert self.result["payments"] == [{"method": "Cash", "amount": 25.00}]
+
+    def test_address_is_not_a_print_block(self):
+        address = self.result["company_address"]
+        assert "123 Market Street" in address
+        assert "Auth Code" not in address
+
+    def test_header_block(self):
+        header = self.result["print_blocks"]["header"]
+        assert len(header) == 1
+        assert header[0]["align"] == "center"
+        assert header[0]["bold"] is False
+        assert header[0]["lines"] == [
+            "Auth Code: ABC-123-XYZ",
+            "Authorized Range: 000-001 - 005-000",
+        ]
+
+    def test_fiscal_block(self):
+        fiscal = self.result["print_blocks"]["fiscal"]
+        assert len(fiscal) == 1
+        assert fiscal[0]["lines"] == ["Reg ID: 999-8888", "Exemption: EX-2026-7"]
+
+    def test_footer_blocks(self):
+        footer = self.result["print_blocks"]["footer"]
+        assert len(footer) == 2
+
+        paid, copies = footer
+        assert paid["lines"] == ["** PAID **"]
+        assert paid["bold"] is True
+        assert paid["align"] == "center"
+
+        assert copies["align"] == "right"
+        assert copies["lines"] == ["Copy 1: Customer", "Copy 2: Store"]
+
+    def test_not_literal(self):
+        assert "literal_lines" not in self.result
+
+
+# === Literal print mode (format owns the whole layout) ===
+
+
+class TestLiteralMode:
+    @pytest.fixture(autouse=True)
+    def _parse(self, parser):
+        self.result = parser.parse(LITERAL_HTML)
+        self.segments = self.result["literal_lines"]
+
+    def test_opt_in_produces_segments(self):
+        assert self.segments, "literal body must produce segments"
+
+    def test_invoice_number_still_extracted_for_job_title(self):
+        assert self.result["invoice_number"] == "R-100"
+
+    def test_receipts_without_opt_in_have_no_literal_lines(self, parser):
+        for html in (ENGLISH_HTML, DATA_PRINT_HTML):
+            assert "literal_lines" not in parser.parse(html)
+
+    def test_company_segment_keeps_classes(self):
+        first = self.segments[0]
+        assert first == {
+            "type": "text",
+            "lines": ["ACME STORE"],
+            "align": "center",
+            "bold": True,
+            "large": True,
+        }
+
+    def test_br_splits_lines_inside_one_div(self):
+        address = self.segments[2]
+        assert address["lines"][0] == "123 Market Street"
+        assert address["lines"][-1] == "Reg ID: 12-3456789"
+
+    def test_style_block_is_not_content(self):
+        texts = [
+            line
+            for seg in self.segments
+            for line in seg.get("lines", [])
+        ]
+        assert not any("font-family" in t for t in texts)
+
+    def test_table_rows_become_column_segments(self):
+        columns = [s for s in self.segments if s["type"] == "columns"]
+        assert {"type": "columns", "cells": ["Qty", "Price", "Amount"],
+                "bold": False} in columns
+        assert {"type": "columns", "cells": ["1", "13.91", "13.91"],
+                "bold": False} in columns
+
+    def test_single_cell_row_is_a_text_line(self):
+        item_lines = [
+            s for s in self.segments
+            if s["type"] == "text"
+            and s["lines"] == ["7422300500418 Trigger Spray Cleaner 30g"]
+        ]
+        assert item_lines and item_lines[0]["bold"] is True
+
+    def test_zero_amount_lines_survive(self):
+        # The whole point of literal mode: a fiscal layout shows 0.00 rows.
+        texts = [line for s in self.segments for line in s.get("lines", [])]
+        assert "Sales Tax 18%: 0.00" in texts
+        assert "Discount: 0.00" in texts
+
+    def test_tax_breakdown_is_right_aligned(self):
+        subtotal = next(
+            s for s in self.segments
+            if s.get("lines") == ["Subtotal: 13.91"]
+        )
+        assert subtotal["align"] == "right"
+
+    def test_spacer_and_document_order(self):
+        kinds = [s["type"] for s in self.segments]
+        assert "blank" in kinds
+        texts = [line for s in self.segments for line in s.get("lines", [])]
+        assert texts.index("Receipt No: R-100") < texts.index(
+            "Paid with CASH: 16.00"
+        ) < texts.index("Please retain this receipt.")
+
+    def test_internal_spacing_is_preserved(self):
+        texts = [line for s in self.segments for line in s.get("lines", [])]
+        assert "Original: Customer   Copy: Store" in texts
+
+
+# Regression: the opt-in attribute must not depend on the format's own <body>
+# surviving — the ERPNext/POSAwesome print pipeline re-wraps or strips it.
+
+
+def test_literal_detected_when_pipeline_wraps_the_document(parser):
+    wrapped = (
+        '<html><head><title>Print</title></head><body>'
+        '<div class="print-format">' + LITERAL_HTML + "</div>"
+        "</body></html>"
+    )
+    assert (
+        parser.parse(wrapped)["literal_lines"]
+        == parser.parse(LITERAL_HTML)["literal_lines"]
+    )
+
+
+def test_literal_detected_when_body_tags_are_stripped(parser):
+    inner = LITERAL_HTML.split("<body>", 1)[1].rsplit("</body>", 1)[0]
+    assert (
+        parser.parse(inner)["literal_lines"]
+        == parser.parse(LITERAL_HTML)["literal_lines"]
+    )
+
+
+def test_literal_attribute_on_body_still_works(parser):
+    html = '<body data-print-mode="literal"><div class="center">Hola</div></body>'
+    assert parser.parse(html)["literal_lines"] == [
+        {
+            "type": "text",
+            "lines": ["Hola"],
+            "align": "center",
+            "bold": False,
+            "large": False,
+        }
+    ]

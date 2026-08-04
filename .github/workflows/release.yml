@@ -1,0 +1,210 @@
+name: Release
+
+# Cut a release on merge to main (i.e. a merged PR). The release version is
+# the single source of truth in api-printer-service/main.py (`version="X.Y.Z"`,
+# mirrored into installers/windows/setup.nsi as APP_VERSION). If a tag for that
+# version already exists the run is a no-op, so bump the version in main.py when
+# you want a new release to be cut.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Resolve the version and decide whether a release is needed ──────────────
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      needed: ${{ steps.resolve.outputs.needed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: resolve
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/.*version[[:space:]]*=[[:space:]]*["'"'"']\([0-9][^"'"'"']*\)["'"'"'].*/\1/p' \
+            api-printer-service/main.py | head -1)
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not parse version from api-printer-service/main.py"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "Tag v$VERSION already exists — nothing to release."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version v$VERSION is new — building release."
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Linux installer (.run) — PyInstaller onefile ────────────────────────────
+  build-linux:
+    needs: version
+    if: needs.version.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+          python -m pip install --upgrade pip
+          pip install -r api-printer-service/requirements.txt pyinstaller
+
+      - name: Build Linux installer
+        working-directory: api-printer-service
+        run: |
+          set -euo pipefail
+          # 1. Self-contained service binary (no Python needed on target).
+          pyinstaller \
+            --onefile \
+            --name api-printer-service-linux \
+            --collect-all uvicorn \
+            --collect-all fastapi \
+            --collect-all pydantic \
+            --collect-all pydantic_core \
+            --collect-all lxml \
+            --collect-all bs4 \
+            --add-data "web:web" \
+            main.py
+          # 2. GUI installer embedding the service binary + GTK control panel.
+          pyinstaller \
+            --onefile \
+            --name api-printer-installer-linux \
+            --hidden-import _tkinter \
+            --collect-all tkinter \
+            --collect-data tk \
+            --collect-data tcl \
+            --add-binary "dist/api-printer-service-linux:." \
+            --add-data "installers/linux/printer_control_gui.py:." \
+            --add-data "installers/linux/api-printer-gui.desktop:." \
+            installers/linux/installer_gui.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-printer-installer-linux
+          path: api-printer-service/dist/api-printer-installer-linux
+          if-no-files-found: error
+
+  # ── Windows installer (.exe) — native NSIS build on windows-latest ──────────
+  build-windows:
+    needs: version
+    if: needs.version.outputs.needed == 'true'
+    runs-on: windows-latest
+    env:
+      PY_VER: "3.11.15"
+      PBS_TAG: "20260414"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install NSIS
+        run: |
+          choco install nsis -y --no-progress
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
+      - name: Prepare offline bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="api-printer-service/installers/windows/bundle"
+          mkdir -p "$BUNDLE/src" "$BUNDLE/deps"
+
+          # Full redistributable CPython for Windows (ships Tkinter + pip).
+          curl -fsSL \
+            "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}/cpython-${PY_VER}+${PBS_TAG}-x86_64-pc-windows-msvc-install_only_stripped.tar.gz" \
+            -o python.tar.gz
+          mkdir -p python-extracted
+          tar -xzf python.tar.gz -C python-extracted
+          mv python-extracted/python "$BUNDLE/python"
+          rm -rf python-extracted python.tar.gz
+
+          # Trim stdlib subtrees the service never imports.
+          find "$BUNDLE/python" -type d -name __pycache__ -exec rm -rf {} + || true
+          rm -rf \
+            "$BUNDLE/python/Lib/idlelib" \
+            "$BUNDLE/python/Lib/turtledemo" \
+            "$BUNDLE/python/Lib/distutils" \
+            "$BUNDLE/python/Lib/pydoc_data" \
+            "$BUNDLE/python/Lib/ensurepip/_bundled"
+
+          # Service source + Tkinter control panel.
+          cp api-printer-service/*.py "$BUNDLE/src/"
+          cp api-printer-service/installers/windows/printer_control_gui_windows.py "$BUNDLE/src/"
+
+          # Windows-tailored requirements (drop the uvicorn[standard] extras;
+          # uvloop has no Windows wheel).
+          sed -e "s/uvicorn\[standard\]/uvicorn/" \
+            api-printer-service/requirements.txt > "$BUNDLE/src/requirements.txt"
+
+          # Control-panel static assets.
+          mkdir -p "$BUNDLE/src/web"
+          cp -r api-printer-service/web/. "$BUNDLE/src/web/"
+
+          # Windows wheels — native download on windows-latest (cp311 win_amd64).
+          WIN_REQS=$(mktemp)
+          sed \
+            -e "s/uvicorn\[standard\]/uvicorn/" \
+            -e "/pywin32/d" \
+            -e "/pystray/d" \
+            -e "/Pillow/d" \
+            api-printer-service/requirements.txt > "$WIN_REQS"
+          python -m pip download --only-binary :all: --dest "$BUNDLE/deps" -r "$WIN_REQS"
+          python -m pip download --only-binary :all: --dest "$BUNDLE/deps" \
+            pywin32==306 pystray==0.19.5 Pillow==11.0.0
+
+          # Tray / shortcut icon.
+          cp api-printer-service/installers/windows/printer.ico "$BUNDLE/printer.ico"
+
+      - name: Build installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIST_DIR="$PWD/api-printer-service/dist"
+          mkdir -p "$DIST_DIR"
+          cd api-printer-service/installers/windows
+          makensis "-DOUTDIR=$DIST_DIR" setup.nsi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-printer-setup-windows
+          path: api-printer-service/dist/api-printer-setup-windows.exe
+          if-no-files-found: error
+
+  # ── Publish the GitHub Release with both installers attached ────────────────
+  release:
+    needs: [version, build-linux, build-windows]
+    if: needs.version.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "v${VERSION}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "v${VERSION}" \
+            --notes "Automated release of API Printer Service v${VERSION}. Self-contained installers — no Python required on the target machine." \
+            "artifacts/api-printer-installer-linux/api-printer-installer-linux" \
+            "artifacts/api-printer-setup-windows/api-printer-setup-windows.exe"

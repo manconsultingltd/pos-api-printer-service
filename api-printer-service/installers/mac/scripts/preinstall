@@ -1,0 +1,39 @@
+#!/bin/bash
+# =============================================================================
+# macOS PKG — pre-install script
+# Runs as root before the (empty) payload is placed.
+#
+# Order is deliberate:
+#   1. Verify Python 3 is available (fail fast — leaves existing daemon alive)
+#   2. Stop any existing api-printer daemon so the postinstall script can
+#      overwrite its files without racing a live process that still holds them.
+# =============================================================================
+set -euo pipefail
+
+INSTALL_DIR="/Library/Application Support/api-printer-service"
+DAEMON_PLIST="/Library/LaunchDaemons/com.posawesome.api-printer.plist"
+DAEMON_LABEL="com.posawesome.api-printer"
+
+# ── 1. Check Python 3 BEFORE touching anything ───────────────────────────────
+if ! command -v python3 >/dev/null 2>&1; then
+    osascript -e 'display dialog "API Printer Service installer\n\nPython 3 is required but was not found.\n\nInstall it with Homebrew:  brew install python\nor via Xcode Command Line Tools:  xcode-select --install\n\nThen run the installer again." buttons {"OK"} default button "OK" with icon caution' 2>/dev/null || true
+    echo "ERROR: Python 3 not found. Install via Homebrew or Xcode CLT." >&2
+    exit 1
+fi
+
+echo "Detected Python: $(command -v python3) ($(python3 --version 2>&1))"
+
+# ── 2. Unload the existing daemon (idempotent — silent on fresh installs) ────
+if [ -f "$DAEMON_PLIST" ]; then
+    echo "Unloading existing LaunchDaemon..."
+    # `bootout` is the modern form; `unload` is kept as a fallback for
+    # hosts running macOS < 11. Both return non-zero when the target is
+    # not loaded, which is fine.
+    launchctl bootout "system/$DAEMON_LABEL" 2>/dev/null || \
+        launchctl unload "$DAEMON_PLIST" 2>/dev/null || true
+fi
+
+# Make sure the destination exists so the payload (even if empty) has a home
+mkdir -p "$INSTALL_DIR"
+
+exit 0

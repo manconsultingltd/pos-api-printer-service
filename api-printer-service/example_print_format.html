@@ -1,0 +1,207 @@
+<!--
+API Printer Service - Dual-Mode Print Format Example
+=====================================================
+
+This print format supports BOTH:
+1. API printing (thermal receipts via localhost:5058)
+2. Browser printing (traditional print dialog)
+
+How it works:
+- POSAwesome detects the API_PRINT marker
+- If marker exists: Extract JSON → Send to API → Print receipt
+- If no marker or API fails: Use HTML below → Browser print dialog
+
+Usage in ERPNext:
+1. Go to: Print Format List → New
+2. Name: "POS Receipt - API Thermal 58mm"
+3. Doc Type: "Sales Invoice"
+4. Format: "Standard"
+5. Print Format Builder: Disabled
+6. Custom Format: Enable
+7. HTML: Paste this entire file
+8. Save
+
+Then in POS Profile:
+- Set "Print Format" to "POS Receipt - API Thermal 58mm"
+-->
+
+<!--
+API PRINT MARKER - DO NOT REMOVE
+This marker tells POSAwesome to use API printing
+Format: <!--API_PRINT_TYPE_MODEL_SIZE-->
+-->
+<!--API_PRINT_ESC_POS_THERMAL_58MM-->
+
+<!--
+PRINTER JSON DATA
+POSAwesome extracts this JSON and sends to API
+-->
+<!--PRINTER_JSON_START-->
+{ "company": {{ doc.company | tojson }}, "invoice_number": {{ doc.name | tojson
+}}, "date": {{ (doc.posting_date ~ " " ~ doc.posting_time) | tojson }},
+"cashier": {{ doc.owner | tojson }}, "customer": {{ (doc.customer_name or
+doc.customer) | tojson }}, "items": [ {% for item in doc.items %} { "name": {{
+item.item_name | tojson }}, "qty": {{ item.qty }}, "rate": {{ item.rate }},
+"amount": {{ item.amount }} }{% if not loop.last %},{% endif %} {% endfor %} ],
+"subtotal": {{ doc.net_total }}, "tax": {{ doc.total_taxes_and_charges or 0 }},
+"discount": {{ doc.discount_amount or 0 }}, "total": {{ doc.grand_total }},
+"payment_method": {{ (doc.payments[0].mode_of_payment if doc.payments else
+'Cash') | tojson }}, "amount_paid": {{ doc.paid_amount or 0 }}, "change": {{
+doc.change_amount or 0 }}, "footer_text": "Thank you for your business!" }
+<!--PRINTER_JSON_END-->
+
+<!--
+HTML FOR BROWSER PRINTING
+This is the fallback if API is unavailable
+-->
+<!doctype html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <title>Receipt - {{ doc.name }}</title>
+        <style>
+            @media print {
+                @page {
+                    size: 58mm auto;
+                    margin: 2mm;
+                }
+            }
+
+            body {
+                font-family: "Courier New", monospace;
+                font-size: 12px;
+                width: 58mm;
+                margin: 0 auto;
+                padding: 2mm;
+            }
+
+            .center {
+                text-align: center;
+            }
+
+            .bold {
+                font-weight: bold;
+            }
+
+            .large {
+                font-size: 16px;
+            }
+
+            .separator {
+                border-top: 1px dashed #000;
+                margin: 5px 0;
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+
+            .item-row td {
+                padding: 2px 0;
+            }
+
+            .text-right {
+                text-align: right;
+            }
+
+            .total-row {
+                font-weight: bold;
+                font-size: 14px;
+                padding-top: 5px;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- Header -->
+        <div class="center bold large">{{ doc.company }}</div>
+        <div class="center">
+            Invoice: {{ doc.name }}<br />
+            {{ doc.posting_date }} {{ doc.posting_time }}<br />
+            {% if doc.owner %}Cashier: {{ doc.owner }}<br />{% endif %} {% if
+            doc.customer_name %}Customer: {{ doc.customer_name }}<br />{% endif
+            %}
+        </div>
+
+        <div class="separator"></div>
+
+        <!-- Items -->
+        <div class="bold">ITEMS</div>
+        <table>
+            {% for item in doc.items %}
+            <tr class="item-row">
+                <td colspan="2">{{ item.item_name }}</td>
+            </tr>
+            <tr class="item-row">
+                <td>
+                    &nbsp;&nbsp;{{ item.qty }} x {{ "%.2f"|format(item.rate) }}
+                </td>
+                <td class="text-right">{{ "%.2f"|format(item.amount) }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+
+        <div class="separator"></div>
+
+        <!-- Totals -->
+        <table>
+            <tr>
+                <td>Subtotal:</td>
+                <td class="text-right">{{ "%.2f"|format(doc.net_total) }}</td>
+            </tr>
+            {% if doc.total_taxes_and_charges %}
+            <tr>
+                <td>Tax:</td>
+                <td class="text-right">
+                    {{ "%.2f"|format(doc.total_taxes_and_charges) }}
+                </td>
+            </tr>
+            {% endif %} {% if doc.discount_amount %}
+            <tr>
+                <td>Discount:</td>
+                <td class="text-right">
+                    -{{ "%.2f"|format(doc.discount_amount) }}
+                </td>
+            </tr>
+            {% endif %}
+            <tr class="total-row">
+                <td>TOTAL:</td>
+                <td class="text-right">{{ "%.2f"|format(doc.grand_total) }}</td>
+            </tr>
+        </table>
+
+        <div class="separator"></div>
+
+        <!-- Payment -->
+        <table>
+            <tr>
+                <td>Payment:</td>
+                <td class="text-right">
+                    {{ doc.payments[0].mode_of_payment if doc.payments else
+                    'Cash' }}
+                </td>
+            </tr>
+            {% if doc.paid_amount %}
+            <tr>
+                <td>Paid:</td>
+                <td class="text-right">{{ "%.2f"|format(doc.paid_amount) }}</td>
+            </tr>
+            {% endif %} {% if doc.change_amount %}
+            <tr>
+                <td>Change:</td>
+                <td class="text-right">
+                    {{ "%.2f"|format(doc.change_amount) }}
+                </td>
+            </tr>
+            {% endif %}
+        </table>
+
+        <div class="separator"></div>
+
+        <!-- Footer -->
+        <div class="center">
+            Thank you for your business!<br />
+            Please come again.
+        </div>
+    </body>
+</html>

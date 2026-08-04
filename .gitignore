@@ -1,0 +1,25 @@
+.DS_Store
+*.pyc
+*.swp
+*.egg-info
+tags
+
+# Build outputs
+dist/
+build/
+*.spec
+
+# PyInstaller
+__pycache__/
+
+# api-printer-service — installer build artifacts
+api-printer-service/installers/windows/bundle/
+api-printer-service/installers/windows/Output/
+api-printer-service/pkg-build/
+api-printer-service/dist-pkg/
+api-printer-service/installer-staging/
+
+# Python virtual environments
+venv/
+.venv/
+api-printer-service/venv/

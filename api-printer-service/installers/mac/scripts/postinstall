@@ -1,0 +1,139 @@
+#!/bin/bash
+# =============================================================================
+# macOS PKG — post-install script
+# Runs as root after the (empty) payload is placed. The preinstall script
+# has already verified Python 3 and stopped any prior daemon instance.
+#
+# The service source files (including the web/ control-panel assets)
+# travel as a tarball inside the Scripts cpio archive; macOS Installer
+# unpacks the whole scripts dir to a temp path accessible via dirname "$0".
+# =============================================================================
+set -euo pipefail
+
+SCRIPTS_DIR="$(dirname "$0")"
+INSTALL_DIR="/Library/Application Support/api-printer-service"
+DAEMON_PLIST="/Library/LaunchDaemons/com.posawesome.api-printer.plist"
+LOG_FILE="/var/log/api-printer.log"
+TARBALL="$SCRIPTS_DIR/api-printer-service.tar.gz"
+APP_BUNDLE="/Applications/API Printer Service.app"
+
+PYTHON3=$(command -v python3)
+echo "Using Python: $PYTHON3 ($($PYTHON3 --version 2>&1))"
+
+# ── 1. Extract service files (includes web/ control-panel assets) ────────────
+echo "Installing to: $INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
+tar xzf "$TARBALL" -C "$INSTALL_DIR"
+
+# ── 2. Create virtual environment + install dependencies ─────────────────────
+echo "Creating Python virtual environment..."
+"$PYTHON3" -m venv "$INSTALL_DIR/venv"
+"$INSTALL_DIR/venv/bin/pip" install --quiet --upgrade pip
+"$INSTALL_DIR/venv/bin/pip" install --quiet -r "$INSTALL_DIR/requirements.txt"
+
+# ── 3. LaunchDaemon plist (system-level, starts at boot) ─────────────────────
+cat > "$DAEMON_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.posawesome.api-printer</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>$INSTALL_DIR/venv/bin/python</string>
+        <string>$INSTALL_DIR/main.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>$INSTALL_DIR</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LOG_FILE</key>
+        <string>$LOG_FILE</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$LOG_FILE</string>
+    <key>StandardErrorPath</key>
+    <string>$LOG_FILE</string>
+</dict>
+</plist>
+PLIST
+
+chmod 644 "$DAEMON_PLIST"
+chown root:wheel "$DAEMON_PLIST"
+
+# ── 4. Start the daemon ───────────────────────────────────────────────────────
+# bootstrap + bootout is the modern path; fall back to load/unload on old macOS.
+launchctl bootstrap system "$DAEMON_PLIST" 2>/dev/null || \
+    launchctl load -w "$DAEMON_PLIST"
+
+# ── 5. Control Panel application bundle (visible in /Applications) ───────────
+# A minimal .app whose single action is to open the local URL in the default
+# browser. Users get a familiar double-clickable launcher and an entry in
+# Launchpad / Spotlight, without us having to ship a native GUI.
+echo "Installing control panel app bundle at $APP_BUNDLE..."
+rm -rf "$APP_BUNDLE"
+mkdir -p "$APP_BUNDLE/Contents/MacOS"
+mkdir -p "$APP_BUNDLE/Contents/Resources"
+
+cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>API Printer Service</string>
+    <key>CFBundleDisplayName</key>
+    <string>API Printer Service</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.posawesome.api-printer.control-panel</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>open-control-panel</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+PLIST
+
+# Launcher script — kicks the daemon if it is not answering, then opens /.
+cat > "$APP_BUNDLE/Contents/MacOS/open-control-panel" <<'LAUNCH'
+#!/bin/bash
+# Bring the daemon back up if it is down, then open the control panel.
+if ! curl -s -o /dev/null --max-time 2 http://localhost:5058/health; then
+    osascript <<APPL
+do shell script "launchctl bootstrap system /Library/LaunchDaemons/com.posawesome.api-printer.plist 2>/dev/null || launchctl kickstart -k system/com.posawesome.api-printer" with administrator privileges
+APPL
+    # Give the daemon a couple of seconds to bind port 5058.
+    sleep 2
+fi
+open "http://localhost:5058/"
+LAUNCH
+
+chmod +x "$APP_BUNDLE/Contents/MacOS/open-control-panel"
+chown -R root:wheel "$APP_BUNDLE"
+
+echo "API Printer Service installed and started."
+echo "Control panel: http://localhost:5058/"
+exit 0

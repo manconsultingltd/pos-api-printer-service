@@ -1,0 +1,129 @@
+<!--API_PRINT_ESC_POS_THERMAL_80MM-->
+{#
+  Literal print mode — 80mm example
+  =================================
+  ERPNext Print Format. Doc Type: Sales Invoice. Custom Format: Yes.
+
+  In literal mode the print format owns the ENTIRE ticket layout. The
+  service does not model the receipt or add any sections, separators or
+  labels of its own — it prints exactly the lines this format renders, in
+  order, with each element's alignment/emphasis. Use this when the ticket
+  must be fully localized or must follow a fixed fiscal layout: keep that
+  logic here, in the print format, not in the service.
+
+  HOW IT WORKS
+  ------------
+    * Opt in with data-print-mode="literal" on the <div> that WRAPS the
+      whole receipt — NOT on <body>: the ERPNext/POSAwesome print pipeline
+      re-wraps or strips the format's own <body> when rendering, which
+      would silently drop the attribute.
+    * Each leaf element prints as one or more lines (one line per <br>).
+    * A <table> row prints on a single line: first cell left-aligned, last
+      cell right-aligned, any middle cells centered between them. A
+      single-cell row prints as a plain line.
+    * Alignment/emphasis come from CSS classes on the element:
+        center / right      -> alignment (default left)
+        bold                -> emphasized
+        large               -> double size
+    * <div class="separator"> prints a dashed rule; <div class="spacer">
+      prints a blank line.
+    * Empty elements (e.g. a div a Jinja {% if %} left blank) are dropped,
+      so guarded fiscal fields never print an empty line.
+
+  Everything below is generic placeholder content — replace the store
+  identity, currency and any jurisdiction-specific wording with your own.
+#}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Receipt - {{ doc.name }}</title>
+  <style>
+    /* Only affects the browser fallback, not the thermal path. */
+    @media print { @page { size: 80mm auto; margin: 2mm; } }
+    body { font-family: 'Courier New', monospace; font-size: 12px;
+           width: 72mm; margin: 0 auto; padding: 2mm; color: #000; }
+    .center { text-align: center; }
+    .right  { text-align: right; }
+    .bold   { font-weight: bold; }
+    .large  { font-size: 16px; }
+    .spacer { height: 10px; }
+    table   { width: 100%; border-collapse: collapse; }
+    td:last-child  { text-align: right; }
+    td:first-child { text-align: left; }
+  </style>
+</head>
+<body>
+<div data-print-mode="literal">
+
+{% set customer = frappe.get_doc('Customer', doc.customer) %}
+
+{# CUSTOMIZE: store brand and header. #}
+<div class="center bold large">ACME STORE</div>
+<div class="center bold">{{ doc.company }}</div>
+<div class="center">
+  123 Market Street<br>
+  Suite 4, Springfield<br>
+  Email: hello@acme.example<br>
+  Tel: 555-0100<br>
+  Reg ID: 00-0000000
+</div>
+
+{# Store (POS Profile warehouse) and its address. #}
+{% if doc.get('pos_profile') %}
+  {% set pos_profile_doc = frappe.get_doc('POS Profile', doc.pos_profile) %}
+  <div class="center bold">Branch: {{ pos_profile_doc.warehouse }}</div>
+{% else %}
+  <div class="center bold">Branch: Main</div>
+{% endif %}
+
+<div class="bold">{% if doc.is_return %}Credit Note:{% else %}Receipt No:{% endif %} {{ doc.name }}</div>
+<div>Issued: {{ doc.get_formatted("posting_date") }} Time: {{ doc.get_formatted("posting_time") }}</div>
+<div class="bold">Customer: {{ doc.customer_name }}</div>
+<div>Reg ID / ID: {% if customer.tax_id %}{{ customer.tax_id }}{% endif %}</div>
+
+{# Multi-cell rows print as one line: first cell left, last cell right,
+   middle cells centered. A single-cell row prints as a plain line. #}
+<table>
+  <tr><td>Qty</td><td>Price</td><td>Amount</td></tr>
+  {% for item in doc.items %}
+  <tr class="bold"><td colspan="3">{{ item.item_code }} {{ item.item_name }}</td></tr>
+  <tr><td>{{ item.get_formatted("qty") }}</td><td>{{ item.get_formatted("rate") }}</td><td>{{ item.get_formatted("amount") }}</td></tr>
+  {% endfor %}
+</table>
+
+<div class="spacer"></div>
+<div>{{ doc.total_qty }} Items</div>
+<div class="spacer"></div>
+
+<div class="right">Subtotal: {{ doc.get_formatted("net_total") }}</div>
+{% for tax in doc.taxes %}
+  {% if tax.tax_amount %}<div class="right">{{ tax.description }}: {{ tax.get_formatted("tax_amount") }}</div>{% endif %}
+{% endfor %}
+{% if doc.discount_amount %}<div class="right">Discount: {{ doc.get_formatted("discount_amount") }}</div>{% endif %}
+<div class="right">Total: {{ doc.get_formatted("grand_total") }}</div>
+<div class="spacer"></div>
+
+{% for payment in doc.payments %}
+  {% if payment.amount and payment.amount > 0 %}
+<div>Paid with {{ payment.mode_of_payment }}: {{ payment.get_formatted("amount") }}</div>
+  {% endif %}
+{% endfor %}
+{% if doc.get('money_in_words') %}
+<div>Amount in words:</div>
+<div>{{ doc.money_in_words }}</div>
+{% endif %}
+<div>Change: {{ doc.get_formatted("change_amount") or "0.00" }}</div>
+<div class="spacer"></div>
+
+<div class="center">THANK YOU FOR SHOPPING WITH US</div>
+<div class="center">Served by: {{ frappe.get_fullname(doc.owner) }}</div>
+<div class="center">KEEP YOUR RECEIPT</div>
+
+{# Safety seal: only prints when the invoice is NOT a normal paid sale. #}
+{% if doc.status == 'Draft' %}<div class="center bold">*** DRAFT ***</div>
+{% elif doc.status == 'Cancelled' %}<div class="center bold">** CANCELLED **</div>{% endif %}
+
+</div>
+</body>
+</html>

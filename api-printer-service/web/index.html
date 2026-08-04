@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Printer Service — Control Panel</title>
+<style>
+  :root {
+    --bg:       #f4f5f7;
+    --card:     #ffffff;
+    --border:   #e2e5ea;
+    --text:     #1d2733;
+    --muted:    #6b7684;
+    --accent:   #2980b9;
+    --accent-d: #1a2a4a;
+    --ok:       #27ae60;
+    --warn:     #c9a227;
+    --fail:     #c0392b;
+    --mono:     ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  header {
+    background: var(--accent-d);
+    color: #fff;
+    padding: 20px 28px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+  }
+  header .sub {
+    margin-top: 4px;
+    color: #aac4e3;
+    font-size: 12px;
+    font-family: var(--mono);
+  }
+  main {
+    max-width: 820px;
+    margin: 24px auto;
+    padding: 0 20px 40px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .card > .head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    color: var(--accent-d);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .card > .body {
+    padding: 16px 18px;
+  }
+  .state {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--muted);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.04);
+  }
+  .dot.ok   { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.fail { background: var(--fail); }
+  button {
+    font: inherit;
+    padding: 7px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: #f6f7f9;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  button:hover:not(:disabled) { background: #eef0f3; }
+  button:disabled {
+    color: #a9b2bd;
+    cursor: not-allowed;
+    background: #f9fafb;
+  }
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  button.primary:hover:not(:disabled) { background: #1f6fa0; }
+  button.danger {
+    border-color: #e5c7c4;
+    color: var(--fail);
+  }
+  button.danger:hover:not(:disabled) { background: #fdeeec; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr:last-child td { border-bottom: none; }
+  tr.selected td { background: #eef5fb; }
+  input[type=radio] { cursor: pointer; }
+  select {
+    font: inherit;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #fff;
+  }
+  .log {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 12px;
+    border-radius: 4px;
+    min-height: 120px;
+    max-height: 240px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  .log .ok   { color: #7ccf7c; }
+  .log .fail { color: #e88080; }
+  .log .info { color: #9cb8d9; }
+  .muted { color: var(--muted); }
+  .empty {
+    color: var(--muted);
+    font-style: italic;
+    padding: 12px 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚙  API Printer Service</h1>
+  <div class="sub" id="endpoint">http://127.0.0.1:5058</div>
+</header>
+
+<main>
+
+  <div class="card">
+    <div class="head">
+      Service
+      <span class="state"><span class="dot" id="state-dot"></span><span id="state-label">Checking…</span></span>
+    </div>
+    <div class="body">
+      <div class="row">
+        <button id="btn-restart" class="primary">Restart</button>
+        <button id="btn-stop" class="danger">Stop</button>
+        <span class="muted" id="platform"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="head">
+      Printers
+      <button id="btn-refresh">Refresh</button>
+    </div>
+    <div class="body">
+      <table id="printers">
+        <thead>
+          <tr>
+            <th style="width: 60px">Default</th>
+            <th>Name</th>
+            <th style="width: 120px">Status</th>
+          </tr>
+        </thead>
+        <tbody id="printer-rows">
+          <tr><td colspan="3" class="empty">Loading printers…</td></tr>
+        </tbody>
+      </table>
+      <div class="row" style="margin-top: 14px">
+        <label for="paper">Paper width:</label>
+        <select id="paper">
+          <option value="58">58 mm</option>
+          <option value="80">80 mm</option>
+        </select>
+        <button id="btn-test">Print test page</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="head">Log</div>
+    <div class="body">
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const logBox = $("log");
+
+  function log(msg, kind = "info") {
+    const ts = new Date().toLocaleTimeString();
+    const line = document.createElement("div");
+    line.className = kind;
+    line.textContent = `[${ts}] ${msg}`;
+    logBox.appendChild(line);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  async function api(method, path, body) {
+    const opts = { method, headers: {} };
+    if (body !== undefined) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(body);
+    }
+    const r = await fetch(path, opts);
+    const text = await r.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (_) { data = { raw: text }; }
+    if (!r.ok) {
+      const msg = (data && (data.detail || data.error || data.message)) || r.statusText;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  // ── Service ──────────────────────────────────────────────────────────────
+  const STATES = {
+    active:       { cls: "ok",   label: "Running" },
+    inactive:     { cls: "",     label: "Stopped" },
+    failed:       { cls: "fail", label: "Failed" },
+    activating:   { cls: "warn", label: "Starting…" },
+    deactivating: { cls: "warn", label: "Stopping…" },
+    unreachable:  { cls: "fail", label: "Unreachable" },
+    unknown:      { cls: "fail", label: "Unknown" },
+  };
+
+  function setState(name) {
+    const s = STATES[name] || STATES.unknown;
+    $("state-dot").className = "dot " + s.cls;
+    $("state-label").textContent = s.label;
+    const reachable = name === "active";
+    $("btn-restart").disabled = !reachable;
+    $("btn-stop").disabled = !reachable;
+  }
+
+  async function refreshStatus() {
+    try {
+      const s = await api("GET", "/api/service/status");
+      setState(s.state || "unknown");
+      if (s.platform) $("platform").textContent = "· " + s.platform;
+    } catch (_) {
+      setState("unreachable");
+    }
+  }
+
+  $("btn-restart").addEventListener("click", async () => {
+    if (!confirm("Restart the service?")) return;
+    log("→ Restarting service…");
+    try {
+      await api("POST", "/api/service/restart");
+      setState("deactivating");
+      log("Service is restarting. The page will reconnect once it is back.", "ok");
+      // Poll until back up
+      pollUntilBack();
+    } catch (e) {
+      log("✗ Restart failed: " + e.message, "fail");
+    }
+  });
+
+  $("btn-stop").addEventListener("click", async () => {
+    if (!confirm("Stop the service? Printing will be unavailable until it is started again.")) return;
+    log("→ Stopping service…");
+    try {
+      await api("POST", "/api/service/stop");
+      setState("deactivating");
+      log("Stop requested. The page will show 'Unreachable' once the service is down.", "ok");
+    } catch (e) {
+      log("✗ Stop failed: " + e.message, "fail");
+    }
+  });
+
+  async function pollUntilBack(attempts = 20) {
+    for (let i = 0; i < attempts; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      try {
+        await api("GET", "/api/service/status");
+        await refreshStatus();
+        await refreshPrinters();
+        log("✓ Service is back.", "ok");
+        return;
+      } catch (_) { /* still down */ }
+    }
+    log("✗ Service did not come back within the expected time.", "fail");
+  }
+
+  // ── Printers ─────────────────────────────────────────────────────────────
+  let defaultPrinter = null;
+
+  async function refreshPrinters() {
+    try {
+      const [printers, settings] = await Promise.all([
+        api("GET", "/api/printers"),
+        api("GET", "/api/settings"),
+      ]);
+      defaultPrinter = (settings && settings.default_printer) || null;
+      renderPrinters(printers.printers || []);
+    } catch (e) {
+      renderPrinters([]);
+    }
+  }
+
+  function renderPrinters(list) {
+    const tbody = $("printer-rows");
+    tbody.innerHTML = "";
+    if (!list.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="empty">No printers found.</td></tr>';
+      return;
+    }
+    for (const p of list) {
+      const tr = document.createElement("tr");
+      const isDef = p.name === defaultPrinter || (defaultPrinter == null && p.is_default);
+      if (isDef) tr.className = "selected";
+      tr.innerHTML = `
+        <td><input type="radio" name="default" ${isDef ? "checked" : ""}></td>
+        <td>${escapeHtml(p.name)}</td>
+        <td class="muted">${escapeHtml(p.status || "-")}</td>
+      `;
+      tr.querySelector("input").addEventListener("change", () => setDefault(p.name));
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function setDefault(name) {
+    try {
+      await api("PUT", "/api/settings", { default_printer: name });
+      defaultPrinter = name;
+      log(`✓ Default printer: "${name}".`, "ok");
+      await refreshPrinters();
+    } catch (e) {
+      log("✗ Could not set default printer: " + e.message, "fail");
+    }
+  }
+
+  $("btn-refresh").addEventListener("click", refreshPrinters);
+
+  $("btn-test").addEventListener("click", async () => {
+    const printer = defaultPrinter;
+    if (!printer) {
+      log("✗ Select a default printer before sending a test page.", "fail");
+      return;
+    }
+    const paper = parseInt($("paper").value, 10) || 58;
+    log(`→ Sending test page to "${printer}" (${paper}mm)…`);
+    $("btn-test").disabled = true;
+    try {
+      const r = await api("POST", "/api/test-print", { printer, paper_width: paper });
+      if (r && r.success) {
+        log(`✓ Test page sent (job ID: ${r.job_id}).`, "ok");
+      } else {
+        log("✗ Test failed: " + ((r && (r.message || r.error)) || "unknown error"), "fail");
+      }
+    } catch (e) {
+      log("✗ Test failed: " + e.message, "fail");
+    } finally {
+      $("btn-test").disabled = false;
+    }
+  });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+    ));
+  }
+
+  $("endpoint").textContent = window.location.origin;
+
+  // Initial load + periodic refresh
+  refreshStatus().then(refreshPrinters);
+  setInterval(refreshStatus, 5000);
+  setInterval(refreshPrinters, 15000);
+})();
+</script>
+
+</body>
+</html>
