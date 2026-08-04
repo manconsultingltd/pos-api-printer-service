@@ -1,10 +1,17 @@
 name: Release
 
-# Cut a release on merge to main (i.e. a merged PR). The release version is
-# the single source of truth in api-printer-service/main.py (`version="X.Y.Z"`,
-# mirrored into installers/windows/setup.nsi as APP_VERSION). If a tag for that
-# version already exists the run is a no-op, so bump the version in main.py when
-# you want a new release to be cut.
+# Cut a release on every merge to main (i.e. a merged PR). The release version
+# is derived from `github.run_number` — a per-workflow monotonic counter that
+# only ever grows — as `1.1.<run_number>`, tagged `v1.1.<run_number>`. Each
+# build job stamps that version into api-printer-service/main.py (the FastAPI
+# `version=`) and installers/windows/setup.nsi (APP_VERSION) before building, so
+# the shipped binary + installer report the real version. The source files hold
+# a `0.0.0-dev` placeholder so a local/dev build never lies about its version.
+#
+# Why run_number and not a hand-bumped string: no one has to remember to bump a
+# version; every merge auto-cuts a monotonically increasing release. Why the
+# 1.1 minor: v1.0.0 was already published manually, so 1.0.<run_number> could
+# collide (run_number is already past 1); 1.1.<N> gives a clean namespace.
 on:
   push:
     branches: [main]
@@ -13,42 +20,38 @@ permissions:
   contents: write
 
 jobs:
-  # ── Resolve the version and decide whether a release is needed ──────────────
+  # ── Resolve the release version from the run counter ────────────────────────
   version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.resolve.outputs.version }}
-      needed: ${{ steps.resolve.outputs.needed }}
+      tag: ${{ steps.resolve.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - id: resolve
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
-          VERSION=$(sed -n 's/.*version[[:space:]]*=[[:space:]]*["'"'"']\([0-9][^"'"'"']*\)["'"'"'].*/\1/p' \
-            api-printer-service/main.py | head -1)
-          if [ -z "$VERSION" ]; then
-            echo "::error::Could not parse version from api-printer-service/main.py"
-            exit 1
-          fi
+          VERSION="1.1.${RUN_NUMBER}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
-            echo "Tag v$VERSION already exists — nothing to release."
-            echo "needed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Version v$VERSION is new — building release."
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-          fi
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION (run_number=$RUN_NUMBER)."
 
   # ── Linux installer (.run) — PyInstaller onefile ────────────────────────────
   build-linux:
     needs: version
-    if: needs.version.outputs.needed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Stamp release version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sed -i "s/0\.0\.0-dev/${VERSION}/g" api-printer-service/main.py
+          grep -q "version=\"${VERSION}\"" api-printer-service/main.py \
+            || { echo "::error::version injection failed in main.py"; grep -n version api-printer-service/main.py; exit 1; }
 
       - uses: actions/setup-python@v5
         with:
@@ -99,13 +102,26 @@ jobs:
   # ── Windows installer (.exe) — native NSIS build on windows-latest ──────────
   build-windows:
     needs: version
-    if: needs.version.outputs.needed == 'true'
     runs-on: windows-latest
     env:
       PY_VER: "3.11.15"
       PBS_TAG: "20260414"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Stamp release version
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sed -i "s/0\.0\.0-dev/${VERSION}/g" \
+            api-printer-service/main.py \
+            api-printer-service/installers/windows/setup.nsi
+          grep -q "version=\"${VERSION}\"" api-printer-service/main.py \
+            || { echo "::error::version injection failed in main.py"; exit 1; }
+          grep -qE "APP_VERSION[[:space:]]+\"${VERSION}\"" api-printer-service/installers/windows/setup.nsi \
+            || { echo "::error::version injection failed in setup.nsi"; exit 1; }
 
       - uses: actions/setup-python@v5
         with:
@@ -192,7 +208,6 @@ jobs:
   # ── Publish the GitHub Release with both installers attached ────────────────
   release:
     needs: [version, build-linux, build-windows]
-    if: needs.version.outputs.needed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -205,11 +220,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release create "v${VERSION}" \
+          gh release create "${TAG}" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "v${VERSION}" \
+            --title "${TAG}" \
             --notes "Automated release of API Printer Service v${VERSION}. Self-contained installers — no Python required on the target machine." \
             "artifacts/api-printer-installer-linux/api-printer-installer-linux" \
             "artifacts/api-printer-setup-windows/api-printer-setup-windows.exe"

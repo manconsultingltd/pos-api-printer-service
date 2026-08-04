@@ -32,41 +32,34 @@ normal browser print dialog.
 ## Two print modes
 
 The service reads what the print format already renders — there is **no
-language detection and no country/marker configuration**. Pick the mode that
-fits the ticket:
+language detection and no country/marker configuration**. There are two
+modes, and which one you author depends on how complex the ticket is:
 
-> **Rule of thumb:** if your receipt fits the standard shape (company, items,
-> subtotal, taxes, total, payments), use modeled mode. **If it doesn't — a
-> different structure, a fixed fiscal layout, or a fully localized ticket —
-> make it a literal format** and let the print format own every line. Don't
-> try to bend the modeled path to fit; that's exactly what literal mode is
-> for.
+> **Recommended default: literal mode.** If your receipt has any localized
+> wording, a fixed fiscal layout, elaborate tax tables, amount-in-words, or
+> country-specific components, make it a **literal** format and let the print
+> format own every line — all of your Jinja logic flows straight through
+> untouched, with no field tags to wire up. Only reach for modeled mode when
+> the ticket is a simple, uniform receipt (company, items, subtotal, taxes,
+> total, payments) and you want the service to lay it out for you.
 
-### 1. Modeled mode (default)
+> **Note on the code fallback.** When a format carries no `data-print-mode`
+> attribute the service falls back to **modeled** mode. This is deliberate —
+> installs created before literal mode existed keep working unchanged. The
+> recommendation above is about which mode to *author* for new formats (opt
+> into literal explicitly, see below), not which one the parser assumes.
 
-The service recognizes a standard receipt shape (company, items, subtotal,
-taxes, total, payments) and lays it out on the ticket. Values are located
-with text anchors that tolerate several languages (e.g. it finds a total row
-whether it's labelled `Total:` or `Totaal:`), but the printed **structural
-labels are a fixed English set** (`Invoice`, `Cashier`, `TOTAL`, …).
-
-Anything the service doesn't model can ride along in literal
-**`data-print`** blocks — mark a `<div data-print="header|fiscal|footer">`
-and its content prints as-is, at a fixed position, with the div's own
-alignment/emphasis (`center` / `right` / `bold` / `large`). Use this for
-extra sections such as fiscal codes, tax IDs, amount-in-words, copies or
-legal phrases.
-
-- Example: [`api-printer-service/example_print_format.html`](api-printer-service/example_print_format.html)
-
-### 2. Literal mode
+### 1. Literal mode (recommended)
 
 The print format owns the **entire** layout. Put
 `data-print-mode="literal"` on the `<div>` that wraps the whole receipt and
 the service prints exactly the lines the format renders — no sections,
 separators or labels of its own. This is the right choice when the ticket
 must be fully localized or must follow a fixed fiscal layout: that logic
-stays in the print format, not in the service.
+stays in the print format, not in the service. Because the service only
+transcribes what your Jinja already rendered, **elaborate tax tables,
+amount-in-words and country-specific components all come through without any
+extra tagging** — you just author them for receipt width.
 
 Layout rules:
 
@@ -89,11 +82,33 @@ so guarded fields never leave a blank line.
 > print pipeline re-wraps or strips the format's own `<body>` when
 > rendering, which would silently drop the attribute.
 
+### 2. Modeled mode (legacy / simple receipts)
+
+This is the fallback the service assumes when no `data-print-mode` attribute
+is present. It recognizes a standard receipt shape (company, items, subtotal,
+taxes, total, payments) and lays it out on the ticket. Values are located
+with text anchors that tolerate several languages (e.g. it finds a total row
+whether it's labelled `Total:` or `Totaal:`), but the printed **structural
+labels are a fixed English set** (`Invoice`, `Cashier`, `TOTAL`, …), so it
+suits simple, uniform receipts — not localized or fiscal layouts. For
+anything more elaborate, author a literal format instead.
+
+Anything the service doesn't model can ride along in literal
+**`data-print`** blocks — mark a `<div data-print="header|fiscal|footer">`
+and its content prints as-is, at a fixed position, with the div's own
+alignment/emphasis (`center` / `right` / `bold` / `large`). Use this for
+extra sections such as fiscal codes, tax IDs, amount-in-words, copies or
+legal phrases.
+
+- Example: [`api-printer-service/example_print_format.html`](api-printer-service/example_print_format.html)
+
 ## Configuring ERPNext
 
 Create a Print Format (Doc Type: *Sales Invoice*, Custom Format: *Yes*) whose
 HTML begins with the API-print marker comment, then paste one of the example
-templates:
+templates — start from the **literal** example
+([`print_format_literal_80mm.html`](api-printer-service/print_format_literal_80mm.html))
+unless you specifically want the simple modeled layout:
 
 ```html
 <!--API_PRINT_ESC_POS_THERMAL_58MM-->
@@ -113,6 +128,8 @@ this Print Format on the relevant POS Profile.
 | Items | table rows with a `qty x rate` pattern |
 | Taxes | rows containing `Tax` / `VAT` / `BTW` with an amount |
 | Total | row starting with `Total` / `Totaal` |
+| Payments | table row whose **first cell is a payment-mode name** (`Cash:`, `Card:`, `Visa:` …) with an amount — *not* a generic `Payment:`/`Paid:` label |
+| Change | row starting with `Change` with an amount |
 | Currency | detected from the `€ $ £ ¥ ₽` symbols (`€` isn't sent to the printer) |
 
 ## API

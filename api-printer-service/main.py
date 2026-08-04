@@ -58,7 +58,7 @@ logger.info("=" * 60)
 app = FastAPI(
     title="API Printer Service",
     description="REST API for receipt printing (thermal, dot matrix, laser, etc.)",
-    version="1.0.0",
+    version="0.0.0-dev",  # placeholder — CI stamps 1.1.<run_number> at release build
 )
 
 # Configure CORS for local access

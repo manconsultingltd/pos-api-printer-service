@@ -29,7 +29,7 @@ SetCompressor /SOLID lzma
 
 ; ── App metadata ──────────────────────────────────────────────────────────────
 !define APP_NAME      "API Printer Service"
-!define APP_VERSION   "1.0.0"
+!define APP_VERSION   "0.0.0-dev"  ; placeholder — CI stamps 1.1.<run_number> at release build
 !define APP_PUBLISHER "POSAwesome"
 !define APP_URL       "http://localhost:5058/"
 !define APP_REGKEY    "Software\POSAwesome\APIprinterService"

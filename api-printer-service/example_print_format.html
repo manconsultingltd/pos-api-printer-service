@@ -1,59 +1,39 @@
 <!--
-API Printer Service - Dual-Mode Print Format Example
-=====================================================
+API Printer Service - Modeled-mode print format (ERPNext / POSAwesome)
+======================================================================
 
-This print format supports BOTH:
-1. API printing (thermal receipts via localhost:5058)
-2. Browser printing (traditional print dialog)
+This is a MODELED-mode example. The service parses the rendered HTML
+directly and recognizes the standard receipt shape (company, items,
+subtotal, taxes, total, payments) - there is NO JSON payload and NO
+language/marker configuration. Just render normal receipt HTML and the
+service lays it out on the thermal ticket.
 
-How it works:
-- POSAwesome detects the API_PRINT marker
-- If marker exists: Extract JSON → Send to API → Print receipt
-- If no marker or API fails: Use HTML below → Browser print dialog
+  * Structural labels on the ticket are a fixed English set
+    (Invoice, Cashier, TOTAL, ...). The values are located by text
+    anchors that tolerate several languages.
+  * Anything the service does not model can ride along in
+    `data-print="header|fiscal|footer"` blocks - their content prints
+    as-is, at a fixed position, with the block's own alignment/emphasis.
+    Use them for fiscal codes, tax IDs, legal phrases, copies, etc.
 
-Usage in ERPNext:
-1. Go to: Print Format List → New
-2. Name: "POS Receipt - API Thermal 58mm"
-3. Doc Type: "Sales Invoice"
-4. Format: "Standard"
-5. Print Format Builder: Disabled
-6. Custom Format: Enable
-7. HTML: Paste this entire file
-8. Save
+If your receipt does NOT fit this standard shape - a different
+structure, a fixed fiscal layout, or a fully localized ticket - use
+LITERAL mode instead (see print_format_literal_80mm.html), where the
+print format owns every line.
 
-Then in POS Profile:
-- Set "Print Format" to "POS Receipt - API Thermal 58mm"
--->
+How to install in ERPNext:
+  1. Print Format List -> New
+  2. Name:      "POS Receipt - API Thermal 58mm"
+  3. Doc Type:  "Sales Invoice"
+  4. Custom Format: Enabled  (Print Format Builder: Disabled)
+  5. HTML:      paste this entire file
+  6. Save, then set this Print Format on the POS Profile.
 
-<!--
-API PRINT MARKER - DO NOT REMOVE
-This marker tells POSAwesome to use API printing
-Format: <!--API_PRINT_TYPE_MODEL_SIZE-->
+The first line below MUST be the API-print marker comment - POSAwesome
+looks for it to route the receipt through the service. Use 80MM instead
+of 58MM for 80mm paper.
 -->
 <!--API_PRINT_ESC_POS_THERMAL_58MM-->
-
-<!--
-PRINTER JSON DATA
-POSAwesome extracts this JSON and sends to API
--->
-<!--PRINTER_JSON_START-->
-{ "company": {{ doc.company | tojson }}, "invoice_number": {{ doc.name | tojson
-}}, "date": {{ (doc.posting_date ~ " " ~ doc.posting_time) | tojson }},
-"cashier": {{ doc.owner | tojson }}, "customer": {{ (doc.customer_name or
-doc.customer) | tojson }}, "items": [ {% for item in doc.items %} { "name": {{
-item.item_name | tojson }}, "qty": {{ item.qty }}, "rate": {{ item.rate }},
-"amount": {{ item.amount }} }{% if not loop.last %},{% endif %} {% endfor %} ],
-"subtotal": {{ doc.net_total }}, "tax": {{ doc.total_taxes_and_charges or 0 }},
-"discount": {{ doc.discount_amount or 0 }}, "total": {{ doc.grand_total }},
-"payment_method": {{ (doc.payments[0].mode_of_payment if doc.payments else
-'Cash') | tojson }}, "amount_paid": {{ doc.paid_amount or 0 }}, "change": {{
-doc.change_amount or 0 }}, "footer_text": "Thank you for your business!" }
-<!--PRINTER_JSON_END-->
-
-<!--
-HTML FOR BROWSER PRINTING
-This is the fallback if API is unavailable
--->
 <!doctype html>
 <html>
     <head>
@@ -66,7 +46,6 @@ This is the fallback if API is unavailable
                     margin: 2mm;
                 }
             }
-
             body {
                 font-family: "Courier New", monospace;
                 font-size: 12px;
@@ -74,58 +53,49 @@ This is the fallback if API is unavailable
                 margin: 0 auto;
                 padding: 2mm;
             }
-
-            .center {
-                text-align: center;
-            }
-
-            .bold {
-                font-weight: bold;
-            }
-
-            .large {
-                font-size: 16px;
-            }
-
-            .separator {
-                border-top: 1px dashed #000;
-                margin: 5px 0;
-            }
-
-            table {
-                width: 100%;
-                border-collapse: collapse;
-            }
-
-            .item-row td {
-                padding: 2px 0;
-            }
-
-            .text-right {
-                text-align: right;
-            }
-
-            .total-row {
-                font-weight: bold;
-                font-size: 14px;
-                padding-top: 5px;
-            }
+            .center { text-align: center; }
+            .bold { font-weight: bold; }
+            .large { font-size: 16px; }
+            .small { font-size: 10px; }
+            .separator { border-top: 1px dashed #000; margin: 5px 0; }
+            table { width: 100%; border-collapse: collapse; }
+            .item-row td { padding: 2px 0; }
+            .text-right { text-align: right; }
+            .total-row { font-weight: bold; font-size: 14px; padding-top: 5px; }
         </style>
     </head>
     <body>
-        <!-- Header -->
+        <!-- Company (modeled: first `bold large` element) -->
         <div class="center bold large">{{ doc.company }}</div>
+
+        <!-- Address (modeled: first `small` element, data-print blocks excluded) -->
+        {% if doc.company_address_display %}
+        <div class="center small">{{ doc.company_address_display }}</div>
+        {% endif %}
+
+        <!--
+          Extra header lines the service does not model ride along in a
+          data-print block and print exactly as written. Delete if unused.
+        -->
+        {% if doc.get("fiscal_auth_code") %}
+        <div class="center small" data-print="header">
+            Auth Code: {{ doc.fiscal_auth_code }}
+        </div>
+        {% endif %}
+
+        <div class="separator"></div>
+
+        <!-- Invoice meta (modeled: located by the `Invoice:`/`Cashier:`/`Customer:` anchors) -->
         <div class="center">
             Invoice: {{ doc.name }}<br />
             {{ doc.posting_date }} {{ doc.posting_time }}<br />
-            {% if doc.owner %}Cashier: {{ doc.owner }}<br />{% endif %} {% if
-            doc.customer_name %}Customer: {{ doc.customer_name }}<br />{% endif
-            %}
+            {% if doc.owner %}Cashier: {{ doc.owner }}<br />{% endif %}
+            {% if doc.customer_name %}Customer: {{ doc.customer_name }}{% endif %}
         </div>
 
         <div class="separator"></div>
 
-        <!-- Items -->
+        <!-- Items (modeled: table rows with a `qty x rate` pattern) -->
         <div class="bold">ITEMS</div>
         <table>
             {% for item in doc.items %}
@@ -133,9 +103,7 @@ This is the fallback if API is unavailable
                 <td colspan="2">{{ item.item_name }}</td>
             </tr>
             <tr class="item-row">
-                <td>
-                    &nbsp;&nbsp;{{ item.qty }} x {{ "%.2f"|format(item.rate) }}
-                </td>
+                <td>&nbsp;&nbsp;{{ item.qty }} x {{ "%.2f"|format(item.rate) }}</td>
                 <td class="text-right">{{ "%.2f"|format(item.amount) }}</td>
             </tr>
             {% endfor %}
@@ -143,7 +111,7 @@ This is the fallback if API is unavailable
 
         <div class="separator"></div>
 
-        <!-- Totals -->
+        <!-- Totals (modeled: Subtotal / Tax / Discount / TOTAL rows) -->
         <table>
             <tr>
                 <td>Subtotal:</td>
@@ -152,16 +120,13 @@ This is the fallback if API is unavailable
             {% if doc.total_taxes_and_charges %}
             <tr>
                 <td>Tax:</td>
-                <td class="text-right">
-                    {{ "%.2f"|format(doc.total_taxes_and_charges) }}
-                </td>
+                <td class="text-right">{{ "%.2f"|format(doc.total_taxes_and_charges) }}</td>
             </tr>
-            {% endif %} {% if doc.discount_amount %}
+            {% endif %}
+            {% if doc.discount_amount %}
             <tr>
                 <td>Discount:</td>
-                <td class="text-right">
-                    -{{ "%.2f"|format(doc.discount_amount) }}
-                </td>
+                <td class="text-right">-{{ "%.2f"|format(doc.discount_amount) }}</td>
             </tr>
             {% endif %}
             <tr class="total-row">
@@ -172,36 +137,44 @@ This is the fallback if API is unavailable
 
         <div class="separator"></div>
 
-        <!-- Payment -->
+        <!--
+          Payment (modeled: ONE row per payment mode, formatted as
+          `<mode>: <amount>`. The service recognizes the mode name in the
+          first cell - do NOT use a generic "Payment:"/"Paid:" label, that
+          won't be modeled. Change is a separate row.
+        -->
         <table>
+            {% for p in doc.payments %}
+            {% if p.amount %}
             <tr>
-                <td>Payment:</td>
-                <td class="text-right">
-                    {{ doc.payments[0].mode_of_payment if doc.payments else
-                    'Cash' }}
-                </td>
+                <td>{{ p.mode_of_payment }}:</td>
+                <td class="text-right">{{ "%.2f"|format(p.amount) }}</td>
             </tr>
-            {% if doc.paid_amount %}
-            <tr>
-                <td>Paid:</td>
-                <td class="text-right">{{ "%.2f"|format(doc.paid_amount) }}</td>
-            </tr>
-            {% endif %} {% if doc.change_amount %}
+            {% endif %}
+            {% endfor %}
+            {% if doc.change_amount %}
             <tr>
                 <td>Change:</td>
-                <td class="text-right">
-                    {{ "%.2f"|format(doc.change_amount) }}
-                </td>
+                <td class="text-right">{{ "%.2f"|format(doc.change_amount) }}</td>
             </tr>
             {% endif %}
         </table>
 
         <div class="separator"></div>
 
-        <!-- Footer -->
-        <div class="center">
-            Thank you for your business!<br />
-            Please come again.
+        <!--
+          Thank-you message (modeled footer: a PLAIN centered line - not a
+          data-print block. A thank-you placed in a data-print block is not
+          treated as the footer and a default one prints instead).
+        -->
+        <div class="center">Thank you for your business!</div>
+
+        <!--
+          Extra legal/footer lines the service does not model print as-is in
+          a data-print="footer" block, after the thank-you. Delete if unused.
+        -->
+        <div class="center small" data-print="footer">
+            This is not a fiscal document.
         </div>
     </body>
 </html>
