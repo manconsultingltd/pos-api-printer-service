@@ -130,22 +130,22 @@ Section "${APP_NAME}" SecMain
     ; lives under $INSTDIR\python\ to keep its Lib\, DLLs\, tcl\ trees
     ; from colliding with the service source files at the install root.
     SetOutPath "$INSTDIR\python"
-    File /r "bundle/python/*.*"
+    File /r "bundle\python\*.*"
 
     SetOutPath "$INSTDIR"
 
     ; Service source files + native Tkinter Control Panel
-    File "bundle/src/*.py"
-    File "bundle/src/requirements.txt"
+    File "bundle\src\*.py"
+    File "bundle\src\requirements.txt"
 
     ; Web panel static assets (served by the service at /)
     SetOutPath "$INSTDIR\web"
-    File "bundle/src/web/*"
+    File "bundle\src\web\*"
     SetOutPath "$INSTDIR"
 
     ; Pre-downloaded Windows wheels (offline — no internet needed on target)
     SetOutPath "$INSTDIR\deps"
-    File "bundle/deps/*.whl"
+    File "bundle\deps\*.whl"
     SetOutPath "$INSTDIR"
 
     ; Helper PowerShell scripts
