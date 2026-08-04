@@ -169,6 +169,11 @@ jobs:
           # Tray / shortcut icon.
           cp api-printer-service/installers/windows/printer.ico "$BUNDLE/printer.ico"
 
+          # Fail fast with a clear message if the CPython bundle didn't land —
+          # otherwise NSIS aborts later with a cryptic "no files found".
+          test -f "$BUNDLE/python/python.exe" \
+            || { echo "::error::CPython bundle missing $BUNDLE/python/python.exe"; ls -la "$BUNDLE/python" || true; exit 1; }
+
       - name: Build installer
         shell: bash
         run: |
