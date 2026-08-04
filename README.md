@@ -113,6 +113,8 @@ this Print Format on the relevant POS Profile.
 | Items | table rows with a `qty x rate` pattern |
 | Taxes | rows containing `Tax` / `VAT` / `BTW` with an amount |
 | Total | row starting with `Total` / `Totaal` |
+| Payments | table row whose **first cell is a payment-mode name** (`Cash:`, `Card:`, `Visa:` …) with an amount — *not* a generic `Payment:`/`Paid:` label |
+| Change | row starting with `Change` with an amount |
 | Currency | detected from the `€ $ £ ¥ ₽` symbols (`€` isn't sent to the printer) |
 
 ## API

@@ -1,9 +1,7 @@
 """
 ESC/POS Receipt Generator
-Generates ESC/POS commands from ERPNext invoice JSON data
-
-Supports template-driven labels for multi-language receipts.
-All text labels can be defined in the JSON template.
+Generates ESC/POS commands from a parsed invoice dict (as produced by
+html_parser from the rendered receipt HTML - there is no JSON payload).
 """
 
 import logging
@@ -172,7 +170,7 @@ class ESCPOSGenerator:
         Args:
             invoice_data: Dictionary containing invoice information
 
-        Expected JSON structure (with template-driven labels):
+        Expected invoice dict (produced by html_parser):
         {
             "company": "Company Name",
             "company_address": "Street 123\\nCity, Country",  # Optional
