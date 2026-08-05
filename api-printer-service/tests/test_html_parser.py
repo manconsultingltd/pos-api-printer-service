@@ -248,6 +248,46 @@ def test_literal_large_column_row_keeps_large_flag(parser):
     ]
 
 
+@pytest.mark.parametrize(
+    "body_line, expected_date",
+    [
+        # ISO with time (and microseconds trimmed)
+        ("Bon: X<br>2026-08-05 23:23:36.482170", "2026-08-05 23:23:36"),
+        # Local formats ERPNext get_formatted produces
+        ("Bon: X<br>05-08-2026 23:23:36", "05-08-2026 23:23:36"),
+        ("Bon: X<br>5-8-2026 23:23", "5-8-2026 23:23"),
+        ("Bon: X<br>05.08.2026 23:23", "05.08.2026 23:23"),
+        # Date only
+        ("Bon: X<br>05-08-2026", "05-08-2026"),
+        # Date and time on the same line but separated by other words
+        ("Bon: X<br>Issued: 05-08-2026 Time: 23:23:36", "05-08-2026 23:23:36"),
+    ],
+)
+def test_date_and_time_survive_all_common_formats(parser, body_line, expected_date):
+    """The date/time line must never get lost on the modeled ticket."""
+    html = (
+        '<body><div class="bold large">Shop</div>'
+        f"<div>{body_line}</div>"
+        '<table><tr><td>Totaal:</td><td>1.00</td></tr></table></body>'
+    )
+    result = parser.parse(html)
+    assert result["date"] == expected_date
+    assert result["invoice_number"] == "X"
+
+
+def test_minified_html_does_not_bleed_into_labeled_values(parser):
+    """Minified HTML (no whitespace between tags) used to glue the whole
+    document into the invoice number."""
+    html = (
+        '<body><div class="bold large">S</div>'
+        '<div>Bon: ACC-1<br>2026-08-05 23:23:36</div>'
+        '<table><tr><td>Totaal:</td><td>1</td></tr></table></body>'
+    )
+    result = parser.parse(html)
+    assert result["invoice_number"] == "ACC-1"
+    assert result["date"] == "2026-08-05 23:23:36"
+
+
 def test_item_dimensions_do_not_create_phantom_items(parser):
     """A description containing 32x48 must not be parsed as qty x rate."""
     html = """<body>

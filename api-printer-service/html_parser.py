@@ -287,7 +287,10 @@ class HtmlReceiptParser:
         self, soup: BeautifulSoup, labels: List[str]
     ) -> Optional[str]:
         """Extract value that follows a label (e.g., 'Kassier: John' -> 'John')."""
-        text = soup.get_text()
+        # "\n" separator: minified HTML would otherwise glue adjacent
+        # elements together and the label's value would swallow the rest of
+        # the document (e.g. "Bon: ACC-1<br>2026-08-05" -> "ACC-12026-08-05").
+        text = soup.get_text("\n")
 
         for label in labels:
             pattern = re.compile(rf"{re.escape(label)}\s*([^\n<]+)", re.IGNORECASE)
@@ -299,24 +302,45 @@ class HtmlReceiptParser:
 
         return None
 
+    # Time of day: 23:23 or 23:23:36 (microseconds dropped on purpose —
+    # ERPNext posting_time carries them but a ticket shouldn't print them)
+    _TIME_PATTERN = r"\d{1,2}:\d{2}(?::\d{2})?"
+
     def _extract_date(self, soup: BeautifulSoup) -> str:
-        """Extract date/time from receipt."""
-        text = soup.get_text()
+        """Extract date/time from receipt.
+
+        The time may sit right after the date or elsewhere on the line
+        (e.g. "Issued: 05-08-2026 Time: 23:23:36"); when the date match has
+        no time attached, the first standalone time found is appended so
+        the ticket keeps both.
+        """
+        text = soup.get_text("\n")
 
         date_value = self._extract_labeled_value(soup, self.LABELS["date"])
         if date_value:
-            return date_value
+            # Trim microseconds a raw posting_time may carry
+            return re.sub(r"(:\d{2})\.\d+", r"\1", date_value)
 
         date_patterns = [
-            r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?",
-            r"\d{2}-\d{2}-\d{4}\s+\d{2}:\d{2}",
-            r"\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}",
+            # ISO: 2026-08-05, optional time
+            rf"\d{{4}}-\d{{2}}-\d{{2}}(?:\s+{self._TIME_PATTERN})?",
+            # Local: 5-8-2026 / 05.08.2026 / 05/08/2026, optional time
+            rf"\d{{1,2}}[-./]\d{{1,2}}[-./]\d{{4}}(?:\s+{self._TIME_PATTERN})?",
         ]
 
         for pattern in date_patterns:
             match = re.search(pattern, text)
             if match:
-                return match.group(0)
+                date = match.group(0)
+                # Date without time: look for a standalone time nearby
+                if ":" not in date:
+                    time_match = re.search(
+                        rf"(?<![\d:]){self._TIME_PATTERN}(?![\d])",
+                        text[match.end():],
+                    )
+                    if time_match:
+                        date = f"{date} {time_match.group(0)}"
+                return date
 
         return ""
 
