@@ -77,6 +77,7 @@
   <div class="center bold">Branch: Main</div>
 {% endif %}
 
+<div class="spacer"></div>
 <div class="bold">{% if doc.is_return %}Credit Note:{% else %}Receipt No:{% endif %} {{ doc.name }}</div>
 <div>Issued: {{ doc.get_formatted("posting_date") }} Time: {{ doc.get_formatted("posting_time") }}</div>
 <div class="bold">Customer: {{ doc.customer_name }}</div>
@@ -101,7 +102,11 @@
   {% if tax.tax_amount %}<div class="right">{{ tax.description }}: {{ tax.get_formatted("tax_amount") }}</div>{% endif %}
 {% endfor %}
 {% if doc.discount_amount %}<div class="right">Discount: {{ doc.get_formatted("discount_amount") }}</div>{% endif %}
-<div class="right">Total: {{ doc.get_formatted("grand_total") }}</div>
+{# Total emphasized like the modeled ticket: a separator before it and a
+   bold large table row — double-size rows fit half the characters, the
+   service lays the columns out accordingly. #}
+<div class="separator"></div>
+<table><tr class="bold large"><td>Total:</td><td>{{ doc.get_formatted("grand_total") }}</td></tr></table>
 <div class="spacer"></div>
 
 {% for payment in doc.payments %}
