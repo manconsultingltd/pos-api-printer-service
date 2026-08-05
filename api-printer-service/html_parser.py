@@ -53,6 +53,13 @@ class HtmlReceiptParser:
         rf"(\d+(?:[.,]\d+)?)\s*[x×]\s*{_CURRENCY_TOKEN}?\s*([\d.,]+)"
     )
 
+    # A table quantity cell must start with the qty/rate expression. Item
+    # descriptions frequently contain dimensions such as "32x48"; searching
+    # the whole row makes those descriptions look like an extra line item.
+    TABLE_QTY_RATE_PATTERN = re.compile(
+        rf"^\s*(\d+(?:[.,]\d+)?)\s*[x×]\s*{_CURRENCY_TOKEN}?\s*([\d.,]+)"
+    )
+
     def _parse_amount_match(self, match) -> float:
         """Parse amount from regex match, including negative sign."""
         if not match:
@@ -289,16 +296,24 @@ class HtmlReceiptParser:
                     i += 1
                     continue
 
-                row_text = row.get_text()
+                # Locate the qty/rate expression in an individual cell and
+                # require a separate amount cell after it. Searching row_text
+                # used to interpret dimensions in a description (for example
+                # "Blossom Garland 32x48 ...") as a phantom 32 x 48 item.
+                qty_cell_index = None
+                qty_rate_match = None
+                for cell_index, cell in enumerate(cells[:-1]):
+                    match = self.TABLE_QTY_RATE_PATTERN.search(cell.get_text())
+                    if match:
+                        qty_cell_index = cell_index
+                        qty_rate_match = match
+                        break
 
-                # Look for qty x rate pattern
-                qty_rate_match = self.QTY_RATE_PATTERN.search(row_text)
-
-                if qty_rate_match:
+                if qty_rate_match is not None:
                     qty = self._parse_number(qty_rate_match.group(1))
                     rate = self._parse_number(qty_rate_match.group(2))
 
-                    amount_text = cells[-1].get_text() if cells else ""
+                    amount_text = cells[-1].get_text()
                     amount_match = self.AMOUNT_PATTERN.search(amount_text)
                     amount = (
                         self._parse_amount_match(amount_match)
@@ -306,8 +321,10 @@ class HtmlReceiptParser:
                         else qty * rate
                     )
 
-                    # Get item name from previous row
-                    if len(cells) <= 2 and i > 0:
+                    # In the usual two-cell layout the item name occupies the
+                    # preceding row. Wider layouts may put it in cells before
+                    # the quantity cell on the same row.
+                    if qty_cell_index == 0 and i > 0:
                         prev_row = rows[i - 1]
                         prev_cells = prev_row.find_all("td")
                         if prev_cells:
@@ -315,9 +332,9 @@ class HtmlReceiptParser:
                         else:
                             item_name = prev_row.get_text(strip=True)
                     else:
-                        item_name = cells[0].get_text(strip=True)
-                        item_name = re.sub(
-                            r"\d+(?:[.,]\d+)?\s*[x×].*", "", item_name
+                        item_name = " ".join(
+                            cell.get_text(" ", strip=True)
+                            for cell in cells[:qty_cell_index]
                         ).strip()
 
                     if item_name and qty > 0:
