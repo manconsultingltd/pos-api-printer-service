@@ -25,6 +25,7 @@ DEFAULT_INSTALL_DIR = "/opt/api-printer-service"
 LOG_FILE   = "/var/log/api-printer.log"
 SERVICE_BINARY_NAME = "api-printer-service-linux"
 GUI_SCRIPT_NAME     = "printer_control_gui.py"
+UPDATE_HELPER_NAME  = "update_notifier.py"
 DESKTOP_ENTRY_NAME  = "api-printer-gui.desktop"
 LAUNCHER_PATH       = "/usr/bin/api-printer-gui"
 APPLICATIONS_DESKTOP_PATH = f"/usr/share/applications/{DESKTOP_ENTRY_NAME}"
@@ -388,6 +389,18 @@ def _step_copy_gui(install_dir, log):
     shutil.copy2(src, dst)
     dst.chmod(0o755)
 
+    # Update-check helper lives beside the GUI so `import update_notifier`
+    # resolves from the script's own directory. Best-effort: an installer
+    # built without it (older CI) still produces a working install.
+    src_helper = BUNDLE_DIR / UPDATE_HELPER_NAME
+    if src_helper.exists():
+        dst_helper = Path(install_dir) / UPDATE_HELPER_NAME
+        log(f"  copy {UPDATE_HELPER_NAME}")
+        shutil.copy2(src_helper, dst_helper)
+        dst_helper.chmod(0o644)
+    else:
+        log(f"  ({UPDATE_HELPER_NAME} not in bundle — update checks disabled)")
+
 def _step_apt_deps(install_dir, log):
     """
     Install GTK3 + AppIndicator runtime dependencies for the GUI.
@@ -428,6 +441,15 @@ def _step_apt_deps(install_dir, log):
     log("  apt-get install -y gnome-shell-extension-appindicator (optional)")
     subprocess.run(
         ["apt-get", "install", "-y", "gnome-shell-extension-appindicator"],
+        env=env, capture_output=True, text=True, timeout=180,
+    )
+
+    # notify-send — transport for the daily update notification (plyer's
+    # Linux backend and update_notifier's fallback both use it). Optional;
+    # without it the GUI only loses the desktop notification.
+    log("  apt-get install -y libnotify-bin (optional, update notifications)")
+    subprocess.run(
+        ["apt-get", "install", "-y", "libnotify-bin"],
         env=env, capture_output=True, text=True, timeout=180,
     )
 

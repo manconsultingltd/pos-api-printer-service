@@ -27,3 +27,8 @@ pywin32==306; sys_platform == "win32"
 # (Linux uses AppIndicator from gi, so these are Windows-only)
 pystray==0.19.5; sys_platform == "win32"
 Pillow==11.0.0; sys_platform == "win32"
+
+# Desktop notifications for the daily update check (update_notifier.py).
+# On Windows it rides on pywin32; the Linux GUI runs on the system python3
+# and falls back to notify-send when plyer is not importable there.
+plyer==2.1.0

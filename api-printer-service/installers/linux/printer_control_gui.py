@@ -45,6 +45,14 @@ except (ValueError, ImportError):
     except (ValueError, ImportError):
         AppIndicator = None
 
+# Daily update check + desktop notification. Installed beside this script
+# by the installer; guarded so a dev checkout or an old install without the
+# module still runs the GUI.
+try:
+    import update_notifier
+except ImportError:
+    update_notifier = None
+
 API_URL = os.environ.get("API_PRINTER_URL", "http://127.0.0.1:5058")
 APP_ID = "api-printer-service"
 APP_NAME = "API Printer Service"
@@ -246,6 +254,16 @@ class PrinterTrayApp:
 
         self._refresh_async()
         GLib.timeout_add_seconds(REFRESH_INTERVAL_SECONDS, self._refresh_async_tick)
+
+        # Once-a-day update check; the notification itself is OS-level
+        # (plyer / notify-send), only the log line needs the Gtk thread.
+        if update_notifier is not None:
+            update_notifier.start_daily_check(
+                lambda: (self.client.health() or {}).get("version"),
+                on_update=lambda msg: GLib.idle_add(
+                    self._log, "↑ " + msg.replace("\n", " ")
+                ),
+            )
 
     # ---- Window -------------------------------------------------------------
 
