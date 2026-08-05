@@ -200,6 +200,52 @@ class TestLiteralMode:
 # surviving — the ERPNext/POSAwesome print pipeline re-wraps or strips it.
 
 
+def test_item_dimensions_do_not_create_phantom_items(parser):
+    """A description containing 32x48 must not be parsed as qty x rate."""
+    html = """<body>
+    <div class="bold">ITEMS</div>
+    <table>
+      <tr><td colspan="2">Blossom Garland 32x48 eckig - 40 original - Tischset</td></tr>
+      <tr><td>&nbsp;1.0 x 7.95</td><td>7.95</td></tr>
+    </table>
+    <table>
+      <tr><td>Subtotal:</td><td>6.57</td></tr>
+      <tr><td>TOTAL:</td><td>7.95</td></tr>
+    </table>
+    </body>"""
+
+    assert parser.parse(html)["items"] == [
+        {
+            "name": "Blossom Garland 32x48 eckig - 40 original - Tischset",
+            "qty": 1.0,
+            "rate": 7.95,
+            "amount": 7.95,
+        }
+    ]
+
+
+def test_description_only_row_with_dimensions_is_not_an_item(parser):
+    html = """<body>
+    <div class="bold">ITEMS</div>
+    <table>
+      <tr><td>Blossom Garland 32x48 eckig</td><td>40 original - Tischset</td></tr>
+    </table>
+    <table><tr><td>TOTAL:</td><td>7.95</td></tr></table>
+    </body>"""
+
+    assert parser.parse(html)["items"] == []
+
+
+def test_same_row_item_layout_still_parses(parser):
+    html = """<body><div class="bold">ITEMS</div><table>
+      <tr><td>Widget</td><td>2 x 10.00</td><td>20.00</td></tr>
+    </table><table><tr><td>TOTAL:</td><td>20.00</td></tr></table></body>"""
+
+    assert parser.parse(html)["items"] == [
+        {"name": "Widget", "qty": 2.0, "rate": 10.0, "amount": 20.0}
+    ]
+
+
 def test_literal_detected_when_pipeline_wraps_the_document(parser):
     wrapped = (
         '<html><head><title>Print</title></head><body>'
