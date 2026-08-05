@@ -15,6 +15,9 @@ name: Release
 on:
   push:
     branches: [main]
+  # Manual dispatch builds every installer for verification (e.g. from a PR
+  # branch) without publishing anything — the release job is push-gated.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -37,10 +40,20 @@ jobs:
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing v$VERSION (run_number=$RUN_NUMBER)."
 
-  # ── Linux installer (.run) — PyInstaller onefile ────────────────────────────
+  # ── Linux installers — PyInstaller onefile on native amd64/arm64 runners ────
   build-linux:
     needs: version
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            elf: x86-64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            elf: aarch64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -93,16 +106,103 @@ jobs:
             --add-data "installers/linux/api-printer-gui.desktop:." \
             installers/linux/installer_gui.py
 
+      - name: Verify architecture and add suffix
+        working-directory: api-printer-service
+        env:
+          ARCH: ${{ matrix.arch }}
+          ELF: ${{ matrix.elf }}
+        run: |
+          set -euo pipefail
+          file dist/api-printer-installer-linux | grep -q "$ELF" \
+            || { echo "::error::expected a $ELF binary"; file dist/api-printer-installer-linux; exit 1; }
+          mv dist/api-printer-installer-linux "dist/api-printer-installer-linux-${ARCH}"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: api-printer-installer-linux
-          path: api-printer-service/dist/api-printer-installer-linux
+          name: api-printer-installer-linux-${{ matrix.arch }}
+          path: api-printer-service/dist/api-printer-installer-linux-${{ matrix.arch }}
           if-no-files-found: error
 
-  # ── Windows installer (.exe) — native NSIS build on windows-latest ──────────
+  # ── Linux x86 (i686) installer — 32-bit build inside an i386 container ──────
+  # No GitHub-hosted 32-bit runner exists. An i386/debian userland on the amd64
+  # host executes natively (no QEMU). Actions cannot run inside a pure-i386
+  # container (the runner-mounted x64 node has no 64-bit glibc there), so
+  # checkout/upload happen on the host and only the build runs in docker.
+  build-linux-x86:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stamp release version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sed -i "s/0\.0\.0-dev/${VERSION}/g" api-printer-service/main.py
+          grep -q "version=\"${VERSION}\"" api-printer-service/main.py \
+            || { echo "::error::version injection failed in main.py"; grep -n version api-printer-service/main.py; exit 1; }
+
+      - name: Build Linux x86 installer (i386 container)
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/386 -v "$PWD:/work" -w /work/api-printer-service \
+            i386/debian:bookworm linux32 bash -euo pipefail -c '
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              python3 python3-venv python3-dev python3-tk build-essential binutils file
+            python3 -m venv /opt/venv
+            /opt/venv/bin/pip install --upgrade pip
+            # uvloop/httptools/watchfiles ship no i686 wheels; plain uvicorn suffices.
+            sed "s/uvicorn\[standard\]/uvicorn/" requirements.txt > /tmp/requirements-i686.txt
+            /opt/venv/bin/pip install -r /tmp/requirements-i686.txt pyinstaller
+            /opt/venv/bin/pyinstaller \
+              --onefile \
+              --name api-printer-service-linux \
+              --collect-all uvicorn \
+              --collect-all fastapi \
+              --collect-all pydantic \
+              --collect-all pydantic_core \
+              --collect-all lxml \
+              --collect-all bs4 \
+              --add-data "web:web" \
+              main.py
+            /opt/venv/bin/pyinstaller \
+              --onefile \
+              --name api-printer-installer-linux \
+              --hidden-import _tkinter \
+              --collect-all tkinter \
+              --collect-data tk \
+              --collect-data tcl \
+              --add-binary "dist/api-printer-service-linux:." \
+              --add-data "installers/linux/printer_control_gui.py:." \
+              --add-data "installers/linux/api-printer-gui.desktop:." \
+              installers/linux/installer_gui.py
+            file dist/api-printer-installer-linux | grep -q "Intel 80386" \
+              || { echo "::error::expected a 32-bit binary"; file dist/api-printer-installer-linux; exit 1; }
+            mv dist/api-printer-installer-linux dist/api-printer-installer-linux-x86
+          '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-printer-installer-linux-x86
+          path: api-printer-service/dist/api-printer-installer-linux-x86
+          if-no-files-found: error
+
+  # ── Windows installers (.exe) — native NSIS build, amd64 + x86 (32-bit) ─────
   build-windows:
     needs: version
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            python_arch: x64
+            pbs_target: x86_64-pc-windows-msvc
+          - arch: x86
+            python_arch: x86
+            pbs_target: i686-pc-windows-msvc
     env:
       PY_VER: "3.11.15"
       PBS_TAG: "20260414"
@@ -123,9 +223,12 @@ jobs:
           grep -qE "APP_VERSION[[:space:]]+\"${VERSION}\"" api-printer-service/installers/windows/setup.nsi \
             || { echo "::error::version injection failed in setup.nsi"; exit 1; }
 
+      # architecture: x86 gives a native 32-bit Python, so `pip download` below
+      # natively resolves win32 wheels for the x86 installer.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          architecture: ${{ matrix.python_arch }}
 
       - name: Install NSIS
         run: |
@@ -141,7 +244,7 @@ jobs:
 
           # Full redistributable CPython for Windows (ships Tkinter + pip).
           curl -fsSL \
-            "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}/cpython-${PY_VER}+${PBS_TAG}-x86_64-pc-windows-msvc-install_only_stripped.tar.gz" \
+            "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}/cpython-${PY_VER}+${PBS_TAG}-${{ matrix.pbs_target }}-install_only_stripped.tar.gz" \
             -o python.tar.gz
           mkdir -p python-extracted
           tar -xzf python.tar.gz -C python-extracted
@@ -170,7 +273,8 @@ jobs:
           mkdir -p "$BUNDLE/src/web"
           cp -r api-printer-service/web/. "$BUNDLE/src/web/"
 
-          # Windows wheels — native download on windows-latest (cp311 win_amd64).
+          # Windows wheels — native download matching the job's Python arch
+          # (cp311 win_amd64 or win32).
           WIN_REQS=$(mktemp)
           sed \
             -e "s/uvicorn\[standard\]/uvicorn/" \
@@ -198,16 +302,20 @@ jobs:
           mkdir -p "$DIST_DIR"
           cd api-printer-service/installers/windows
           makensis "-DOUTDIR=$DIST_DIR" setup.nsi
+          mv "$DIST_DIR/api-printer-setup-windows.exe" \
+            "$DIST_DIR/api-printer-setup-windows-${{ matrix.arch }}.exe"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: api-printer-setup-windows
-          path: api-printer-service/dist/api-printer-setup-windows.exe
+          name: api-printer-setup-windows-${{ matrix.arch }}
+          path: api-printer-service/dist/api-printer-setup-windows-${{ matrix.arch }}.exe
           if-no-files-found: error
 
-  # ── Publish the GitHub Release with both installers attached ────────────────
+  # ── Publish the GitHub Release with every installer attached ────────────────
   release:
-    needs: [version, build-linux, build-windows]
+    needs: [version, build-linux, build-linux-x86, build-windows]
+    # Only merges to main publish; workflow_dispatch runs stop after building.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -226,6 +334,9 @@ jobs:
           gh release create "${TAG}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "${TAG}" \
-            --notes "Automated release of API Printer Service v${VERSION}. Self-contained installers — no Python required on the target machine." \
-            "artifacts/api-printer-installer-linux/api-printer-installer-linux" \
-            "artifacts/api-printer-setup-windows/api-printer-setup-windows.exe"
+            --notes "Automated release of API Printer Service v${VERSION}. Self-contained installers — no Python required on the target machine. Linux: amd64, arm64, x86 (32-bit). Windows: amd64, x86 (32-bit)." \
+            "artifacts/api-printer-installer-linux-amd64/api-printer-installer-linux-amd64" \
+            "artifacts/api-printer-installer-linux-arm64/api-printer-installer-linux-arm64" \
+            "artifacts/api-printer-installer-linux-x86/api-printer-installer-linux-x86" \
+            "artifacts/api-printer-setup-windows-amd64/api-printer-setup-windows-amd64.exe" \
+            "artifacts/api-printer-setup-windows-x86/api-printer-setup-windows-x86.exe"
