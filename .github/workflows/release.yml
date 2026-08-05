@@ -1,7 +1,8 @@
 name: Release
 
-# Cut a release on every merge to main (i.e. a merged PR). The release version
-# is derived from `github.run_number` — a per-workflow monotonic counter that
+# Build installers on every merge to main and when manually dispatched. Pushes
+# publish a GitHub Release; manual runs only retain the generated artifacts.
+# The version is derived from `github.run_number` — a per-workflow monotonic counter that
 # only ever grows — as `1.1.<run_number>`, tagged `v1.1.<run_number>`. Each
 # build job stamps that version into api-printer-service/main.py (the FastAPI
 # `version=`) and installers/windows/setup.nsi (APP_VERSION) before building, so
@@ -15,6 +16,7 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -35,7 +37,7 @@ jobs:
           VERSION="1.1.${RUN_NUMBER}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Releasing v$VERSION (run_number=$RUN_NUMBER)."
+          echo "Building v$VERSION (run_number=$RUN_NUMBER)."
 
   # ── Linux installer (.run) — PyInstaller onefile ────────────────────────────
   build-linux:
@@ -207,6 +209,8 @@ jobs:
 
   # ── Publish the GitHub Release with both installers attached ────────────────
   release:
+    # Manual runs produce downloadable workflow artifacts but no GitHub Release.
+    if: github.event_name == 'push'
     needs: [version, build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
