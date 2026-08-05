@@ -90,6 +90,7 @@ jobs:
             --collect-data tcl \
             --add-binary "dist/api-printer-service-linux:." \
             --add-data "installers/linux/printer_control_gui.py:." \
+            --add-data "update_notifier.py:." \
             --add-data "installers/linux/api-printer-gui.desktop:." \
             installers/linux/installer_gui.py
 

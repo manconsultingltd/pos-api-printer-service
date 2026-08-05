@@ -172,6 +172,17 @@ The service picks the target printer in this order: the printer saved via the
 control panel → the OS default printer (Windows) → the built-in default name
 `ThermalPrinter`.
 
+### Update notifications
+
+The control-panel GUI checks the GitHub Releases API at most **once per
+calendar day** and shows a desktop notification (plyer on Windows,
+plyer/`notify-send` on Linux) when a newer version is published. The installed
+version is read from the running service's `/health` endpoint; the last-check
+date is stored per user (`~/.config/api-printer-service/update_check.json` on
+Linux, `%APPDATA%\api-printer-service\update_check.json` on Windows). Dev
+builds (`0.0.0-dev`) never notify. See
+[`api-printer-service/update_notifier.py`](api-printer-service/update_notifier.py).
+
 ## Run from source
 
 ```bash
@@ -205,6 +216,7 @@ endpoint contract, and Windows printer enumeration.
 | `api-printer-service/escpos_generator.py` | structured data → ESC/POS bytes |
 | `api-printer-service/printer_manager.py` | CUPS / Windows spooler abstraction |
 | `api-printer-service/config.py` | cross-platform paths, ports, printer resolution |
+| `api-printer-service/update_notifier.py` | daily update check + desktop notification (used by the GUIs) |
 | `api-printer-service/example_print_format.html` | modeled-mode print format |
 | `api-printer-service/print_format_literal_80mm.html` | literal-mode print format |
 | `api-printer-service/installers/` | Linux / Windows / macOS installer assets |

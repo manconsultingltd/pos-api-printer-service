@@ -34,6 +34,14 @@ except ImportError:
     TrayIcon = TrayMenu = TrayMenuItem = None  # type: ignore[assignment]
     _TRAY_AVAILABLE = False
 
+# Daily update check + desktop notification (plyer). The installer copies
+# update_notifier.py into the same directory as this script; guarded so a
+# dev checkout or an old install without the module still runs the GUI.
+try:
+    import update_notifier
+except ImportError:
+    update_notifier = None
+
 API_URL = os.environ.get("API_PRINTER_URL", "http://127.0.0.1:5058")
 APP_NAME = "API Printer Service"
 TASK_NAME = "API Printer Service"
@@ -329,6 +337,16 @@ class PrinterControlApp:
 
         self._refresh_async()
         self.root.after(REFRESH_INTERVAL_MS, self._refresh_tick)
+
+        # Once-a-day update check; the notification itself is OS-level
+        # (plyer balloon tip), only the log line needs the Tk thread.
+        if update_notifier is not None:
+            update_notifier.start_daily_check(
+                lambda: (self.client.health() or {}).get("version"),
+                on_update=lambda msg: self.root.after(
+                    0, self._log, "↑ " + msg.replace("\n", " "), "info"
+                ),
+            )
 
     # ---- UI -----------------------------------------------------------------
 

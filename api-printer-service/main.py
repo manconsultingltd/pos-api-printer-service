@@ -215,6 +215,9 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "api-printer-service",
+        # CI stamps the FastAPI version at release build; the control-panel
+        # GUIs read it here for the daily update check (update_notifier.py).
+        "version": app.version,
         "timestamp": datetime.now().isoformat(),
     }
 
