@@ -23,10 +23,11 @@ class HtmlReceiptParser:
     * Modeled mode (default) — the parser recognizes a fixed receipt shape
       (company, items, totals, taxes, payments) and the ESC/POS generator
       lays it out on the ticket. Values are located with multilingual text
-      anchors (e.g. "Totaal:"/"Total:"), but the printed structural labels
-      are the fixed English set (Invoice/Cashier/TOTAL/…). Content the
-      parser doesn't model can travel in literal data-print blocks; see
-      _extract_print_blocks.
+      anchors (e.g. "Totaal:"/"Total:") and the printed structural labels
+      are the ones actually found in the receipt HTML, so the ticket keeps
+      the receipt's own language (English is only the fallback when no
+      anchor matched; see DEFAULT_LABELS). Content the parser doesn't model
+      can travel in literal data-print blocks; see _extract_print_blocks.
 
     * Literal mode — a print format opts in with data-print-mode="literal"
       and owns the whole layout; the service prints exactly what the format
@@ -70,8 +71,9 @@ class HtmlReceiptParser:
 
     # Text anchors used to LOCATE values in the rendered HTML. These stay
     # multilingual so a receipt rendered in any of these languages still
-    # parses; they do not decide the printed labels (those are fixed English,
-    # see ENGLISH_LABELS).
+    # parses. The anchor that matches ALSO becomes the printed structural
+    # label, so the ticket comes out in the receipt's own language (see
+    # _detect_labels / DEFAULT_LABELS).
     LABELS = {
         "invoice": [
             "Bon:",
@@ -104,10 +106,10 @@ class HtmlReceiptParser:
         "footer": ["Bedankt", "Thank you", "Dank u", "Gracias"],
     }
 
-    # Fixed English structural labels the ESC/POS generator prints in modeled
-    # mode, regardless of the source receipt's language. A format that needs
-    # localized wording uses literal mode.
-    ENGLISH_LABELS = {
+    # Fallback structural labels for the ESC/POS generator in modeled mode,
+    # used only when no anchor from LABELS matched in the receipt HTML
+    # (e.g. the corresponding section is absent).
+    DEFAULT_LABELS = {
         "invoice_label": "Invoice",
         "cashier_label": "Cashier",
         "customer_label": "Customer",
@@ -119,6 +121,21 @@ class HtmlReceiptParser:
         "payment_label": "Payment",
         "paid_label": "Paid",
         "change_label": "Change",
+    }
+
+    # Which LABELS group provides each printed structural label
+    LABEL_FIELDS = {
+        "invoice_label": "invoice",
+        "cashier_label": "cashier",
+        "customer_label": "customer",
+        "items_label": "items",
+        "subtotal_label": "subtotal",
+        "tax_label": "tax",
+        "discount_label": "discount",
+        "total_label": "total",
+        "payment_label": "payment",
+        "paid_label": "paid",
+        "change_label": "change",
     }
 
     # Non-content tags skipped while walking a literal-mode body
@@ -177,8 +194,10 @@ class HtmlReceiptParser:
             result["payment_method"] = ""
             result["amount_paid"] = 0
 
-        # Add the fixed English structural labels for the ESC/POS generator
-        result.update(self.ENGLISH_LABELS)
+        # Structural labels for the ESC/POS generator: use the anchors that
+        # actually matched in the HTML so the ticket keeps the receipt's own
+        # language; fall back to the English defaults otherwise.
+        result.update(self._detect_labels(soup))
 
         logger.info(
             f"Parsed HTML receipt: {result.get('invoice_number')}, "
@@ -189,6 +208,28 @@ class HtmlReceiptParser:
         logger.debug(f"Full parsed data: {result}")
 
         return result
+
+    def _detect_labels(self, soup: BeautifulSoup) -> Dict[str, str]:
+        """Resolve the printed structural labels from the receipt itself.
+
+        For each printed label, the first anchor from the corresponding
+        LABELS group that appears in the document (as a whole word) wins,
+        stripped of its trailing colon — the generator re-adds punctuation.
+        Labels whose anchors are absent keep their DEFAULT_LABELS fallback,
+        so partial receipts still print complete tickets.
+        """
+        text = soup.get_text()
+        labels = dict(self.DEFAULT_LABELS)
+
+        for field, group in self.LABEL_FIELDS.items():
+            for anchor in self.LABELS[group]:
+                # Word boundary: "Totaal" must not match inside "Subtotaal".
+                pattern = rf"(?<![A-Za-zÀ-ÿ]){re.escape(anchor)}"
+                if re.search(pattern, text):
+                    labels[field] = anchor.rstrip(":").strip()
+                    break
+
+        return labels
 
     def _detect_currency(self, soup: BeautifulSoup) -> str:
         """Detect currency symbol from the HTML content.
@@ -748,6 +789,7 @@ class HtmlReceiptParser:
                         "type": "columns",
                         "cells": texts,
                         "bold": "bold" in row_classes,
+                        "large": "large" in row_classes,
                     }
                 )
 

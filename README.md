@@ -88,10 +88,12 @@ This is the fallback the service assumes when no `data-print-mode` attribute
 is present. It recognizes a standard receipt shape (company, items, subtotal,
 taxes, total, payments) and lays it out on the ticket. Values are located
 with text anchors that tolerate several languages (e.g. it finds a total row
-whether it's labelled `Total:` or `Totaal:`), but the printed **structural
-labels are a fixed English set** (`Invoice`, `Cashier`, `TOTAL`, …), so it
-suits simple, uniform receipts — not localized or fiscal layouts. For
-anything more elaborate, author a literal format instead.
+whether it's labelled `Total:` or `Totaal:`), and the printed **structural
+labels are the ones found in the receipt itself** (`Bon`, `Totaal`,
+`ARTIKELEN`, …), so the ticket keeps the receipt's language. English
+defaults (`Invoice`, `TOTAL`, …) are only used for sections whose anchor
+did not appear. It suits simple, uniform receipts — for a different
+structure or a fixed fiscal layout, author a literal format instead.
 
 Anything the service doesn't model can ride along in literal
 **`data-print`** blocks — mark a `<div data-print="header|fiscal|footer">`

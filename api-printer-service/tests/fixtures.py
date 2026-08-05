@@ -8,7 +8,7 @@ literal print mode, where the format owns the whole layout.
 """
 
 # Modeled mode: the parser recognizes the receipt shape and the generator
-# lays it out. Structural labels print in fixed English.
+# lays it out. Structural labels follow the receipt's own language.
 ENGLISH_HTML = """<!doctype html>
 <html>
 <head>

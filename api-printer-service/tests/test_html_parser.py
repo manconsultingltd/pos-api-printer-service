@@ -18,7 +18,7 @@ def parser():
     return HtmlReceiptParser()
 
 
-# === Modeled mode: structured extraction, fixed English labels ===
+# === Modeled mode: structured extraction, labels follow receipt language ===
 
 
 class TestEnglishReceipt:
@@ -26,7 +26,7 @@ class TestEnglishReceipt:
     def _parse(self, parser):
         self.result = parser.parse(ENGLISH_HTML)
 
-    def test_english_labels_are_fixed(self):
+    def test_english_receipt_prints_english_labels(self):
         assert self.result["invoice_label"] == "Invoice"
         assert self.result["total_label"] == "TOTAL"
         assert self.result["change_label"] == "Change"
@@ -158,9 +158,9 @@ class TestLiteralMode:
     def test_table_rows_become_column_segments(self):
         columns = [s for s in self.segments if s["type"] == "columns"]
         assert {"type": "columns", "cells": ["Qty", "Price", "Amount"],
-                "bold": False} in columns
+                "bold": False, "large": False} in columns
         assert {"type": "columns", "cells": ["1", "13.91", "13.91"],
-                "bold": False} in columns
+                "bold": False, "large": False} in columns
 
     def test_single_cell_row_is_a_text_line(self):
         item_lines = [
@@ -198,6 +198,54 @@ class TestLiteralMode:
 
 # Regression: the opt-in attribute must not depend on the format's own <body>
 # surviving — the ERPNext/POSAwesome print pipeline re-wraps or strips it.
+
+
+def test_labels_follow_the_receipt_language(parser):
+    """Modeled mode must print the receipt's own labels (e.g. Dutch), not a
+    fixed English set. English stays the fallback for absent sections."""
+    html = """<body>
+    <div class="center bold large">Hartley's</div>
+    <div class="center">Bon: ACC-1<br>2026-08-05 23:23:36</div>
+    <div class="bold">ARTIKELEN</div>
+    <table>
+      <tr><td colspan="2">Widget</td></tr>
+      <tr><td>&nbsp;1.0 x 4.45</td><td>4.45</td></tr>
+    </table>
+    <table>
+      <tr><td>Subtotaal:</td><td>4.11</td></tr>
+      <tr><td>BTW 9% over 4.11:</td><td>0.37</td></tr>
+      <tr><td>Totaal:</td><td>4.45</td></tr>
+    </table>
+    <div class="center">Bedankt voor uw aankoop!</div>
+    </body>"""
+
+    result = parser.parse(html)
+    assert result["invoice_label"] == "Bon"
+    assert result["items_label"] == "ARTIKELEN"
+    assert result["subtotal_label"] == "Subtotaal"
+    assert result["total_label"] == "Totaal"
+    # Sections absent from the receipt keep the English fallback
+    assert result["cashier_label"] == "Cashier"
+    assert result["discount_label"] == "Discount"
+
+
+def test_totaal_label_not_shadowed_by_subtotaal(parser):
+    html = """<body><div class="bold large">Shop</div>
+    <table><tr><td>Subtotaal:</td><td>4.11</td></tr>
+    <tr><td>Totaal:</td><td>4.45</td></tr></table></body>"""
+    result = parser.parse(html)
+    assert result["subtotal_label"] == "Subtotaal"
+    assert result["total_label"] == "Totaal"
+
+
+def test_literal_large_column_row_keeps_large_flag(parser):
+    html = ('<div data-print-mode="literal"><table>'
+            '<tr class="bold large"><td>Totaal:</td><td>34.90</td></tr>'
+            "</table></div>")
+    assert parser.parse(html)["literal_lines"] == [
+        {"type": "columns", "cells": ["Totaal:", "34.90"],
+         "bold": True, "large": True}
+    ]
 
 
 def test_item_dimensions_do_not_create_phantom_items(parser):

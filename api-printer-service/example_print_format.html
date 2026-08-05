@@ -8,9 +8,10 @@ subtotal, taxes, total, payments) - there is NO JSON payload and NO
 language/marker configuration. Just render normal receipt HTML and the
 service lays it out on the thermal ticket.
 
-  * Structural labels on the ticket are a fixed English set
-    (Invoice, Cashier, TOTAL, ...). The values are located by text
-    anchors that tolerate several languages.
+  * Structural labels on the ticket are the ones this format renders
+    (located by text anchors that tolerate several languages), so the
+    ticket keeps the receipt's own language. English labels (Invoice,
+    Cashier, TOTAL, ...) are only the fallback for absent sections.
   * Anything the service does not model can ride along in
     `data-print="header|fiscal|footer"` blocks - their content prints
     as-is, at a fixed position, with the block's own alignment/emphasis.
