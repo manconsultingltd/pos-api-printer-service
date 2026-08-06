@@ -237,6 +237,58 @@ def test_empty_literal_wrapper_end_to_end_does_not_500():
     assert raw.endswith(CUT_PARTIAL)
 
 
+def test_modeled_long_item_name_wraps_fully_without_truncation():
+    """A long item name must word-wrap across as many lines as needed —
+    'Knife: 18.6cm' used to come out as 'Knife: 18.' on 58mm paper."""
+    generator = ESCPOSGenerator(paper_width=58)
+    name = "3 Piece Cutlery Set Fork: 16.3 cm Spoon: 16.3cm Knife: 18.6cm"
+    invoice = {
+        **LEGACY_INVOICE,
+        "items": [{"name": name, "qty": 1, "rate": 21.95, "amount": 21.95}],
+    }
+    text = generator.generate_receipt(invoice).decode("cp437")
+    printed = " ".join(text.split())
+    assert "Knife: 18.6cm" in printed
+    # No printed line exceeds the paper width
+    for line in text.splitlines():
+        clean = line.lstrip("\x1b\x1d\x00\x01\x10\x20\x30!@Ea")
+        assert len(clean) <= generator.chars_per_line, repr(line)
+
+
+def test_literal_text_wraps_to_paper_width():
+    """Literal mode must word-wrap at the paper width instead of letting the
+    printer break mid-word at the edge of narrow paper."""
+    generator = ESCPOSGenerator(paper_width=58)  # 32 chars
+    raw = generator.generate_literal_receipt([
+        {"type": "text",
+         "lines": ["3 Piece Cutlery Set Fork: 16.3 cm Spoon: 16.3cm Knife: 18.6cm"],
+         "align": "left", "bold": False, "large": False},
+    ])
+    text = raw.decode("cp437")
+    assert "Knife: 18.6cm" in " ".join(text.split())
+    body_lines = [l for l in text.splitlines() if "16.3" in l or "18.6" in l]
+    assert len(body_lines) >= 2  # actually wrapped
+    for line in body_lines:
+        assert len(line.replace("\x1b\x61\x00", "")) <= generator.chars_per_line
+
+
+def test_literal_large_column_row_prints_double_height_full_width():
+    """Like the modeled TOTAL: double height only, so character width is
+    unchanged and the amount stays flush right at the paper edge."""
+    generator = ESCPOSGenerator(paper_width=58)  # 32 chars
+    raw = generator.generate_literal_receipt([
+        {"type": "columns", "cells": ["Totaal:", "34.90"],
+         "bold": True, "large": True},
+    ])
+    assert b"\x1b\x21\x10" in raw  # double height on
+    assert b"\x1b\x21\x00" in raw  # reset after
+    text = raw.decode("cp437")
+    line = next(l for l in text.splitlines() if "Totaal" in l)
+    line = line[line.index("Totaal"):]
+    assert line.startswith("Totaal:") and line.endswith("34.90")
+    assert len(line) == generator.chars_per_line
+
+
 def test_columns_collision_truncates_without_scrambling():
     """On a too-narrow line, colliding cells truncate visibly instead of
     overwriting each other's characters."""

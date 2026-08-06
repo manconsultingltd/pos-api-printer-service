@@ -106,6 +106,44 @@ class ESCPOSGenerator:
         spaces = total_width - len(left) - len(right)
         return left + (" " * spaces) + right
 
+    def _wrap_text(
+        self, text: str, width: int = None, indent: str = ""
+    ) -> List[str]:
+        """Word-wrap text to the paper width.
+
+        Continuation lines get `indent` prefixed so wrapped content reads as
+        one logical line. Words longer than a whole line are hard-split.
+        Returns at least one line (possibly empty) so callers can print
+        blank lines unchanged.
+        """
+        if width is None:
+            width = self.chars_per_line
+        if len(text) <= width:
+            return [text]
+
+        lines: List[str] = []
+        current = ""
+        for word in text.split(" "):
+            prefix = indent if lines else ""
+            limit = width - len(prefix)
+            candidate = f"{current} {word}" if current else word
+            if len(candidate) <= limit:
+                current = candidate
+                continue
+            if current:
+                lines.append(prefix + current)
+                current = ""
+            # Hard-split words longer than a whole line
+            while len(word) > width - len(indent if lines else ""):
+                prefix = indent if lines else ""
+                cut = width - len(prefix)
+                lines.append(prefix + word[:cut])
+                word = word[cut:]
+            current = word
+        if current:
+            lines.append((indent if lines else "") + current)
+        return lines or [""]
+
     def _print_blocks(
         self, blocks: Optional[List[Dict[str, Any]]], restore_align: bytes
     ) -> bytes:
@@ -139,7 +177,8 @@ class ESCPOSGenerator:
             if block.get("bold"):
                 out += self.BOLD_ON
             for line in block.get("lines", []):
-                out += self._line(str(line))
+                for wrapped in self._wrap_text(str(line), indent="  "):
+                    out += self._line(wrapped)
             if block.get("bold"):
                 out += self.BOLD_OFF
             if block.get("large"):
@@ -308,17 +347,10 @@ class ESCPOSGenerator:
             rate = item.get("rate", 0.0)
             amount = item.get("amount", 0.0)
 
-            # Item name (may wrap to multiple lines)
-            max_name_width = self.chars_per_line - 2
-            if len(item_name) > max_name_width:
-                # Wrap long names
-                receipt += self._line(item_name[:max_name_width])
-                item_name = "  " + item_name[max_name_width:]
-                if len(item_name) > max_name_width:
-                    item_name = item_name[:max_name_width]
-                receipt += self._line(item_name)
-            else:
-                receipt += self._line(item_name)
+            # Item name: word-wrap across as many lines as needed — long
+            # names must never be truncated ("Knife: 18.6cm" -> "Knife: 18.")
+            for name_line in self._wrap_text(item_name, indent="  "):
+                receipt += self._line(name_line)
 
             # Qty x Rate = Amount
             qty_rate = f"  {qty} x {self._format_currency(rate, currency)}"
@@ -509,24 +541,38 @@ class ESCPOSGenerator:
             if kind == "columns":
                 cells = [str(cell) for cell in segment.get("cells", [])]
                 receipt += self.ALIGN_LEFT
+                # "large" rows print double HEIGHT only (like the modeled
+                # TOTAL): character width is unchanged, so columns keep the
+                # full line width and the amount stays flush right.
+                large = bool(segment.get("large"))
+                if large:
+                    receipt += self.DOUBLE_HEIGHT_ON
                 if segment.get("bold"):
                     receipt += self.BOLD_ON
                 receipt += self._line(self._layout_columns(cells))
                 if segment.get("bold"):
                     receipt += self.BOLD_OFF
+                if large:
+                    receipt += self.TEXT_NORMAL
                 continue
 
             if kind == "text":
                 receipt += align_map.get(segment.get("align"), self.ALIGN_LEFT)
-                if segment.get("large"):
+                large = bool(segment.get("large"))
+                # Double-size text halves the characters per line
+                wrap_width = self.chars_per_line // 2 if large else None
+                if large:
                     receipt += self.DOUBLE_SIZE_ON
                 if segment.get("bold"):
                     receipt += self.BOLD_ON
                 for line in segment.get("lines", []):
-                    receipt += self._line(str(line))
+                    # Word-wrap to the paper width: on narrow paper the
+                    # printer would otherwise break mid-word at the edge.
+                    for wrapped in self._wrap_text(str(line), wrap_width, indent="  "):
+                        receipt += self._line(wrapped)
                 if segment.get("bold"):
                     receipt += self.BOLD_OFF
-                if segment.get("large"):
+                if large:
                     receipt += self.TEXT_NORMAL
 
         receipt += self.ALIGN_LEFT
@@ -536,17 +582,17 @@ class ESCPOSGenerator:
 
         return receipt
 
-    def _layout_columns(self, cells: List[str]) -> str:
+    def _layout_columns(self, cells: List[str], width: int = None) -> str:
         """Lay one table row out on a single line: first cell left-aligned,
         last cell right-aligned, middle cells centered in between."""
+        if width is None:
+            width = self.chars_per_line
         if not cells:
             return ""
         if len(cells) == 1:
             return cells[0]
         if len(cells) == 2:
-            return self._align_columns(cells[0], cells[1])
-
-        width = self.chars_per_line
+            return self._align_columns(cells[0], cells[1], width)
         line = [" "] * width
 
         def put(text: str, start: int) -> None:

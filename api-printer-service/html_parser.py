@@ -23,10 +23,11 @@ class HtmlReceiptParser:
     * Modeled mode (default) — the parser recognizes a fixed receipt shape
       (company, items, totals, taxes, payments) and the ESC/POS generator
       lays it out on the ticket. Values are located with multilingual text
-      anchors (e.g. "Totaal:"/"Total:"), but the printed structural labels
-      are the fixed English set (Invoice/Cashier/TOTAL/…). Content the
-      parser doesn't model can travel in literal data-print blocks; see
-      _extract_print_blocks.
+      anchors (e.g. "Totaal:"/"Total:") and the printed structural labels
+      are the ones actually found in the receipt HTML, so the ticket keeps
+      the receipt's own language (English is only the fallback when no
+      anchor matched; see DEFAULT_LABELS). Content the parser doesn't model
+      can travel in literal data-print blocks; see _extract_print_blocks.
 
     * Literal mode — a print format opts in with data-print-mode="literal"
       and owns the whole layout; the service prints exactly what the format
@@ -70,8 +71,9 @@ class HtmlReceiptParser:
 
     # Text anchors used to LOCATE values in the rendered HTML. These stay
     # multilingual so a receipt rendered in any of these languages still
-    # parses; they do not decide the printed labels (those are fixed English,
-    # see ENGLISH_LABELS).
+    # parses. The anchor that matches ALSO becomes the printed structural
+    # label, so the ticket comes out in the receipt's own language (see
+    # _detect_labels / DEFAULT_LABELS).
     LABELS = {
         "invoice": [
             "Bon:",
@@ -104,10 +106,10 @@ class HtmlReceiptParser:
         "footer": ["Bedankt", "Thank you", "Dank u", "Gracias"],
     }
 
-    # Fixed English structural labels the ESC/POS generator prints in modeled
-    # mode, regardless of the source receipt's language. A format that needs
-    # localized wording uses literal mode.
-    ENGLISH_LABELS = {
+    # Fallback structural labels for the ESC/POS generator in modeled mode,
+    # used only when no anchor from LABELS matched in the receipt HTML
+    # (e.g. the corresponding section is absent).
+    DEFAULT_LABELS = {
         "invoice_label": "Invoice",
         "cashier_label": "Cashier",
         "customer_label": "Customer",
@@ -119,6 +121,21 @@ class HtmlReceiptParser:
         "payment_label": "Payment",
         "paid_label": "Paid",
         "change_label": "Change",
+    }
+
+    # Which LABELS group provides each printed structural label
+    LABEL_FIELDS = {
+        "invoice_label": "invoice",
+        "cashier_label": "cashier",
+        "customer_label": "customer",
+        "items_label": "items",
+        "subtotal_label": "subtotal",
+        "tax_label": "tax",
+        "discount_label": "discount",
+        "total_label": "total",
+        "payment_label": "payment",
+        "paid_label": "paid",
+        "change_label": "change",
     }
 
     # Non-content tags skipped while walking a literal-mode body
@@ -177,8 +194,10 @@ class HtmlReceiptParser:
             result["payment_method"] = ""
             result["amount_paid"] = 0
 
-        # Add the fixed English structural labels for the ESC/POS generator
-        result.update(self.ENGLISH_LABELS)
+        # Structural labels for the ESC/POS generator: use the anchors that
+        # actually matched in the HTML so the ticket keeps the receipt's own
+        # language; fall back to the English defaults otherwise.
+        result.update(self._detect_labels(soup))
 
         logger.info(
             f"Parsed HTML receipt: {result.get('invoice_number')}, "
@@ -189,6 +208,28 @@ class HtmlReceiptParser:
         logger.debug(f"Full parsed data: {result}")
 
         return result
+
+    def _detect_labels(self, soup: BeautifulSoup) -> Dict[str, str]:
+        """Resolve the printed structural labels from the receipt itself.
+
+        For each printed label, the first anchor from the corresponding
+        LABELS group that appears in the document (as a whole word) wins,
+        stripped of its trailing colon — the generator re-adds punctuation.
+        Labels whose anchors are absent keep their DEFAULT_LABELS fallback,
+        so partial receipts still print complete tickets.
+        """
+        text = soup.get_text()
+        labels = dict(self.DEFAULT_LABELS)
+
+        for field, group in self.LABEL_FIELDS.items():
+            for anchor in self.LABELS[group]:
+                # Word boundary: "Totaal" must not match inside "Subtotaal".
+                pattern = rf"(?<![A-Za-zÀ-ÿ]){re.escape(anchor)}"
+                if re.search(pattern, text):
+                    labels[field] = anchor.rstrip(":").strip()
+                    break
+
+        return labels
 
     def _detect_currency(self, soup: BeautifulSoup) -> str:
         """Detect currency symbol from the HTML content.
@@ -246,7 +287,10 @@ class HtmlReceiptParser:
         self, soup: BeautifulSoup, labels: List[str]
     ) -> Optional[str]:
         """Extract value that follows a label (e.g., 'Kassier: John' -> 'John')."""
-        text = soup.get_text()
+        # "\n" separator: minified HTML would otherwise glue adjacent
+        # elements together and the label's value would swallow the rest of
+        # the document (e.g. "Bon: ACC-1<br>2026-08-05" -> "ACC-12026-08-05").
+        text = soup.get_text("\n")
 
         for label in labels:
             pattern = re.compile(rf"{re.escape(label)}\s*([^\n<]+)", re.IGNORECASE)
@@ -258,24 +302,45 @@ class HtmlReceiptParser:
 
         return None
 
+    # Time of day: 23:23 or 23:23:36 (microseconds dropped on purpose —
+    # ERPNext posting_time carries them but a ticket shouldn't print them)
+    _TIME_PATTERN = r"\d{1,2}:\d{2}(?::\d{2})?"
+
     def _extract_date(self, soup: BeautifulSoup) -> str:
-        """Extract date/time from receipt."""
-        text = soup.get_text()
+        """Extract date/time from receipt.
+
+        The time may sit right after the date or elsewhere on the line
+        (e.g. "Issued: 05-08-2026 Time: 23:23:36"); when the date match has
+        no time attached, the first standalone time found is appended so
+        the ticket keeps both.
+        """
+        text = soup.get_text("\n")
 
         date_value = self._extract_labeled_value(soup, self.LABELS["date"])
         if date_value:
-            return date_value
+            # Trim microseconds a raw posting_time may carry
+            return re.sub(r"(:\d{2})\.\d+", r"\1", date_value)
 
         date_patterns = [
-            r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?",
-            r"\d{2}-\d{2}-\d{4}\s+\d{2}:\d{2}",
-            r"\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}",
+            # ISO: 2026-08-05, optional time
+            rf"\d{{4}}-\d{{2}}-\d{{2}}(?:\s+{self._TIME_PATTERN})?",
+            # Local: 5-8-2026 / 05.08.2026 / 05/08/2026, optional time
+            rf"\d{{1,2}}[-./]\d{{1,2}}[-./]\d{{4}}(?:\s+{self._TIME_PATTERN})?",
         ]
 
         for pattern in date_patterns:
             match = re.search(pattern, text)
             if match:
-                return match.group(0)
+                date = match.group(0)
+                # Date without time: look for a standalone time nearby
+                if ":" not in date:
+                    time_match = re.search(
+                        rf"(?<![\d:]){self._TIME_PATTERN}(?![\d])",
+                        text[match.end():],
+                    )
+                    if time_match:
+                        date = f"{date} {time_match.group(0)}"
+                return date
 
         return ""
 
@@ -748,6 +813,7 @@ class HtmlReceiptParser:
                         "type": "columns",
                         "cells": texts,
                         "bold": "bold" in row_classes,
+                        "large": "large" in row_classes,
                     }
                 )
 
