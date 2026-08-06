@@ -541,15 +541,15 @@ class ESCPOSGenerator:
             if kind == "columns":
                 cells = [str(cell) for cell in segment.get("cells", [])]
                 receipt += self.ALIGN_LEFT
-                # In double-width mode the printer fits half the characters
-                # per line, so column math must use the reduced width.
+                # "large" rows print double HEIGHT only (like the modeled
+                # TOTAL): character width is unchanged, so columns keep the
+                # full line width and the amount stays flush right.
                 large = bool(segment.get("large"))
-                width = self.chars_per_line // 2 if large else None
                 if large:
                     receipt += self.DOUBLE_HEIGHT_ON
                 if segment.get("bold"):
                     receipt += self.BOLD_ON
-                receipt += self._line(self._layout_columns(cells, width))
+                receipt += self._line(self._layout_columns(cells))
                 if segment.get("bold"):
                     receipt += self.BOLD_OFF
                 if large:

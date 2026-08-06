@@ -103,8 +103,8 @@
 {% endfor %}
 {% if doc.discount_amount %}<div class="right">Discount: {{ doc.get_formatted("discount_amount") }}</div>{% endif %}
 {# Total emphasized like the modeled ticket: a separator before it and a
-   bold large table row — double-size rows fit half the characters, the
-   service lays the columns out accordingly. #}
+   bold large table row — printed double height at full width, so the
+   amount stays flush right like every other row. #}
 <div class="separator"></div>
 <table><tr class="bold large"><td>Total:</td><td>{{ doc.get_formatted("grand_total") }}</td></tr></table>
 <div class="spacer"></div>

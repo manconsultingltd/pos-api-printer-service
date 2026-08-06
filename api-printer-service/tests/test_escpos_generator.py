@@ -272,8 +272,10 @@ def test_literal_text_wraps_to_paper_width():
         assert len(line.replace("\x1b\x61\x00", "")) <= generator.chars_per_line
 
 
-def test_literal_large_column_row_prints_double_size_at_half_width():
-    generator = ESCPOSGenerator(paper_width=58)  # 32 chars -> 16 when large
+def test_literal_large_column_row_prints_double_height_full_width():
+    """Like the modeled TOTAL: double height only, so character width is
+    unchanged and the amount stays flush right at the paper edge."""
+    generator = ESCPOSGenerator(paper_width=58)  # 32 chars
     raw = generator.generate_literal_receipt([
         {"type": "columns", "cells": ["Totaal:", "34.90"],
          "bold": True, "large": True},
@@ -283,8 +285,8 @@ def test_literal_large_column_row_prints_double_size_at_half_width():
     text = raw.decode("cp437")
     line = next(l for l in text.splitlines() if "Totaal" in l)
     line = line[line.index("Totaal"):]
-    assert line == "Totaal:    34.90"
-    assert len(line) == generator.chars_per_line // 2
+    assert line.startswith("Totaal:") and line.endswith("34.90")
+    assert len(line) == generator.chars_per_line
 
 
 def test_columns_collision_truncates_without_scrambling():
