@@ -16,7 +16,7 @@ import sys
 import threading
 import tkinter as tk
 from functools import partial
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Any, Callable
 from urllib import request as urlrequest
 from urllib.error import HTTPError, URLError
@@ -122,6 +122,39 @@ class PrinterServiceClient:
             return {"success": False, "error": detail}
         except (URLError, TimeoutError, ConnectionError, OSError) as e:
             return {"success": False, "error": str(e)}
+
+    # ---- Self-update (the service runs the scheduler; the GUI only reads
+    # state and presses the same buttons the web panel does) ---------------
+
+    def update_status(self) -> dict | None:
+        try:
+            data = self._request("GET", "/api/update/status") or {}
+            return dict(data)
+        except (HTTPError, URLError, TimeoutError, OSError):
+            return None
+
+    def update_check(self) -> dict | None:
+        try:
+            data = self._request("POST", "/api/update/check", {}) or {}
+            return dict(data)
+        except (HTTPError, URLError, TimeoutError, OSError):
+            return None
+
+    def update_install(self) -> dict | None:
+        try:
+            data = self._request("POST", "/api/update/install", {}) or {}
+            return dict(data)
+        except (HTTPError, URLError, TimeoutError, OSError):
+            return None
+
+    def update_set_channel(self, channel: str) -> dict | None:
+        try:
+            data = self._request(
+                "POST", "/api/update/set-channel", {"channel": channel},
+            ) or {}
+            return dict(data)
+        except (HTTPError, URLError, TimeoutError, OSError):
+            return None
 
 
 # =============================================================================
@@ -302,8 +335,8 @@ class PrinterControlApp:
         self._tray_icon: Any = None
 
         self.root.title(APP_NAME)
-        self.root.geometry("680x520")
-        self.root.minsize(560, 420)
+        self.root.geometry("680x600")
+        self.root.minsize(560, 500)
 
         # Clicking the window's X button hides to tray instead of quitting —
         # matches the Linux/GTK "Hide to tray" behaviour. Actual quit goes
@@ -435,6 +468,48 @@ class PrinterControlApp:
         )
         self.test_btn.pack(side="right", padx=4)
 
+        # Updates — self-update status and controls. The service's updater
+        # does the checking on its own schedule; this frame mirrors its
+        # state and offers the same actions as the web panel.
+        updates_frame = ttk.LabelFrame(outer, text="Updates", padding=(10, 6))
+        updates_frame.pack(fill="x", pady=(0, 10))
+
+        self.update_version_label = ttk.Label(updates_frame, text="v—")
+        self.update_version_label.pack(side="left", anchor="w")
+
+        self.update_status_label = ttk.Label(
+            updates_frame, text="—", font=("Segoe UI", 9, "bold"),
+        )
+        self.update_status_label.pack(side="left", anchor="w", padx=(10, 0))
+
+        self.update_check_btn = ttk.Button(
+            updates_frame, text="Check now", command=self._on_update_check,
+        )
+        self.update_check_btn.pack(side="right", padx=4)
+
+        self.update_install_btn = ttk.Button(
+            updates_frame, text="Install update",
+            command=self._on_update_install, state="disabled",
+        )
+        self.update_install_btn.pack(side="right", padx=4)
+
+        ttk.Label(updates_frame, text="Ring:").pack(side="right")
+        self.update_channel_combo = ttk.Combobox(
+            updates_frame, values=("stable", "preview"),
+            state="readonly", width=8,
+        )
+        self.update_channel_combo.set("stable")
+        self.update_channel_combo.pack(side="right", padx=(0, 4))
+        self.update_channel_combo.bind(
+            "<<ComboboxSelected>>", self._on_update_channel_changed,
+        )
+
+        self.update_note_label = ttk.Label(
+            updates_frame, text="", foreground="#666666",
+            font=("Segoe UI", 8), wraplength=560, justify="left",
+        )
+        self.update_note_label.pack(fill="x", pady=(4, 0))
+
         # Log
         log_frame = ttk.LabelFrame(outer, text="Log", padding=(10, 6))
         log_frame.pack(fill="both", expand=False)
@@ -492,6 +567,121 @@ class PrinterControlApp:
             self._log("Select a printer before sending a test page.", "err")
             return
         self._test_print_async(printer)
+
+    # ---- Updates handlers --------------------------------------------------
+
+    UPDATE_STATUS_LABELS = {
+        "idle":        ("", "Idle"),
+        "checking":    ("#c9a227", "Checking…"),
+        "up-to-date":  ("#27ae60", "Up to date"),
+        "available":   ("#c9a227", "Update available"),
+        "downloading": ("#c9a227", "Downloading…"),
+        "installing":  ("#27ae60", "Installing…"),
+        "ready":       ("#27ae60", "Ready"),
+        "error":       ("#e74c3c", "Error"),
+    }
+
+    def _apply_update(self, s: dict | None) -> None:
+        if not s:
+            self.update_status_label.config(text="—", foreground="#666666")
+            self.update_install_btn.config(state="disabled")
+            return
+        colour, label = self.UPDATE_STATUS_LABELS.get(
+            s.get("status", "idle"), ("", "—"),
+        )
+        version = s.get("available_version")
+        self.update_status_label.config(
+            text=label + (f" — v{version}" if version else ""),
+            foreground=colour,
+        )
+        self.update_version_label.config(text=f"v{s.get('current_version', '?')}")
+        channel = s.get("channel") or "stable"
+        # Re-setting .set() inside the 10s refresh loop must not re-trigger
+        # the channel-change handler; the guard flag handles that.
+        if self.update_channel_combo.get() != channel:
+            self._applying_channel = True
+            self.update_channel_combo.set(channel)
+            self._applying_channel = False
+        self.update_install_btn.config(
+            state=("normal" if (
+                s.get("capability") == "auto" and s.get("status") == "available"
+            ) else "disabled"),
+        )
+        note = (s.get("capability_reason")
+                if s.get("capability") == "notify" else "")
+        if s.get("status") == "error" and s.get("error"):
+            note = s["error"]
+        self.update_note_label.config(text=note or "")
+
+    def _on_update_check(self) -> None:
+        self.update_check_btn.config(state="disabled")
+        self._log("Checking for updates…")
+
+        def work():
+            return self.client.update_check()
+
+        def done(result):
+            self.update_check_btn.config(state="normal")
+            if not result:
+                self._log("Update check failed (service unreachable).", "err")
+                return
+            s = result
+            status = s.get("status")
+            if status == "available":
+                self._log(
+                    f"Update available: v{s.get('available_version')}. "
+                    "Use Install update to apply it.", "ok",
+                )
+            elif status == "up-to-date":
+                self._log(f"Up to date (v{s.get('current_version')}).", "ok")
+            elif status == "error":
+                self._log(f"Update check failed: {s.get('error')}", "err")
+            self._apply_update(s)
+
+        self._run_bg(work, done)
+
+    def _on_update_install(self) -> None:
+        if not messagebox.askyesno(
+            APP_NAME,
+            "Download and install the update?\n\n"
+            "The service will stop and restart automatically into the "
+            "new version.",
+        ):
+            return
+        self.update_install_btn.config(state="disabled")
+        self._log("Downloading update installer…")
+
+        def work():
+            return self.client.update_install()
+
+        def done(result):
+            if not result:
+                self._log("Install request failed (service unreachable).", "err")
+                self.update_install_btn.config(state="normal")
+                return
+            self._log(
+                "Update is installing. The service will restart into the "
+                "new version — this window will reconnect automatically.", "ok",
+            )
+
+        self._run_bg(work, done)
+
+    def _on_update_channel_changed(self, _event=None) -> None:
+        if getattr(self, "_applying_channel", False):
+            return
+        channel = self.update_channel_combo.get()
+        self._log(f"Switching update ring to '{channel}' and checking now…")
+
+        def work():
+            return self.client.update_set_channel(channel)
+
+        def done(result):
+            if not result:
+                self._log("Ring change failed (service unreachable).", "err")
+                return
+            self._apply_update(result)
+
+        self._run_bg(work, done)
 
     # ---- Tray --------------------------------------------------------------
 
@@ -689,14 +879,16 @@ class PrinterControlApp:
                 self.client.health(),
                 self.client.list_printers(),
                 self.client.get_settings(),
+                self.client.update_status(),
             )
 
         def done(result):
             if isinstance(result, Exception):
                 self._apply_state("unknown", False, [], {})
                 return
-            state, health, printers, settings = result
+            state, health, printers, settings, update = result
             self._apply_state(state, health is not None, printers, settings)
+            self._apply_update(update)
 
         self._run_bg(work, done)
 
