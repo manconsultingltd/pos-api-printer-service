@@ -13,6 +13,17 @@ name: Release
 # version; every merge auto-cuts a monotonically increasing release. Why the
 # 1.1 minor: v1.0.0 was already published manually, so 1.0.<run_number> could
 # collide (run_number is already past 1); 1.1.<N> gives a clean namespace.
+#
+# RELEASE RINGS: every release cut here
+# is a PRERELEASE (preview channel). `gh release create --prerelease` keeps it
+# out of /releases/latest, so merges reach only preview-ring clients (the
+# in-app updater's "preview" ring) — stable clients wait for a promotion.
+# Promotion to stable is a HUMAN act: run the promote workflow. It flips
+# metadata on a release that ALREADY EXISTS — no rebuild, no re-tag. The
+# bytes stable users install are byte-for-byte the ones that soaked on
+# preview. Why CI cannot decide this: green tests are the bar for MERGING; if
+# they were also the bar for stable, the two rings would be the same ring.
+# Stable means a human ran the build.
 on:
   push:
     branches: [main]
@@ -226,10 +237,38 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
+      - name: Create SHA256SUMS.txt
+        # Every release asset must be covered by SHA256SUMS.txt — promote
+        # fails closed if the checksum manifest is missing or incomplete.
+        run: |
           set -euo pipefail
+          cd artifacts
+          sha256sum \
+            "api-printer-installer-linux/api-printer-installer-linux" \
+            "api-printer-setup-windows/api-printer-setup-windows.exe" \
+            > SHA256SUMS.txt
+          # Rewrite paths so the manifest is flat (promote downloads assets
+          # flat, and the promote verifier compares the exact file list).
+          sed -i 's#  api-printer-installer-linux/api-printer-installer-linux$#  api-printer-installer-linux#; s#  api-printer-setup-windows/api-printer-setup-windows.exe#  api-printer-setup-windows.exe#' SHA256SUMS.txt
+          sha256sum --check --strict SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # --prerelease: every automated cut is PREVIEW ring. It stays out of
+          # /releases/latest, which is what stable-ring clients resolve
+          # against, so a merge reaches only preview users. Promotion to
+          # stable is the promote workflow — a human act, metadata-only.
           gh release create "${TAG}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "${TAG}" \
-            --notes "Automated release of API Printer Service v${VERSION}. Self-contained installers — no Python required on the target machine." \
+            --prerelease \
+            --notes "Automated preview release of API Printer Service v${VERSION}. Self-contained installers — no Python required on the target machine." \
             "artifacts/api-printer-installer-linux/api-printer-installer-linux" \
-            "artifacts/api-printer-setup-windows/api-printer-setup-windows.exe"
+            "artifacts/api-printer-setup-windows/api-printer-setup-windows.exe" \
+            "artifacts/SHA256SUMS.txt"

@@ -1,0 +1,63 @@
+name: promote
+
+# The manual half of the release rings. release.yml cuts EVERY merge to main
+# as a prerelease (preview channel); this workflow is the button that ships a
+# tested build to stable.
+#
+# Promotion is a human act by definition (a stable ring that CI flipped on a
+# green build would be the same ring as preview), which is why this is
+# workflow_dispatch — pressing the button IS the confirmation. All
+# verification and the metadata-only flip live in scripts/promote-release.sh:
+# every required artifact and checksum is verified BEFORE anything is
+# touched, and nothing is ever rebuilt, re-tagged or re-uploaded.
+# Promoting an older known-good tag by name is the rollback path.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to promote (e.g. v1.1.42). Leave empty to promote the newest prerelease.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write        # edit the release (flip prerelease -> latest)
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Resolve tag (default: newest prerelease)"
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_INPUT: ${{ github.event.inputs.tag }}
+        run: |
+          # Dispatch input is bound through env, never interpolated into
+          # script text — this job holds contents:write. The explicit-tag
+          # path is validated to a safe charset so it can never inject into
+          # the output file or the downstream promote script.
+          if [[ -n "$TAG_INPUT" ]]; then
+            if [[ ! "$TAG_INPUT" =~ ^v[0-9A-Za-z._-]+$ ]]; then
+              echo "::error::Invalid tag '${TAG_INPUT}' — expected v<version>."
+              exit 1
+            fi
+            echo "tag=$TAG_INPUT" >> "$GITHUB_OUTPUT"
+          else
+            NEWEST="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease --jq '[.[] | select(.isPrerelease)][0].tagName')"
+            if [[ -z "$NEWEST" || "$NEWEST" == "null" ]]; then
+              echo "::error::No prerelease found to promote — is everything already stable?"
+              exit 1
+            fi
+            echo "tag=$NEWEST" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Promote to stable (verify artifacts + checksums, flip metadata)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          chmod +x scripts/promote-release.sh
+          ./scripts/promote-release.sh "$RELEASE_TAG" "$GITHUB_REPOSITORY"
