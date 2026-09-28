@@ -46,6 +46,10 @@ except (ValueError, ImportError):
         AppIndicator = None
 
 API_URL = os.environ.get("API_PRINTER_URL", "http://127.0.0.1:5058")
+# Release pages are the only URL this GUI may hand to the OS browser.
+RELEASE_URL_PREFIX = (
+    "https://github.com/manconsultingltd/pos-api-printer-service/releases/"
+)
 APP_ID = "api-printer-service"
 APP_NAME = "API Printer Service"
 SERVICE_UNIT = "api-printer.service"
@@ -136,6 +140,32 @@ class PrinterServiceClient:
         except (URLError, TimeoutError, ConnectionError, OSError) as e:
             return {"success": False, "error": str(e)}
 
+    # ---- Self-update (the service runs the scheduler; the GUI only reads
+    # state and presses the same buttons the web panel does) ---------------
+
+    def update_status(self) -> dict | None:
+        try:
+            data = self._request("GET", "/api/update/status") or {}
+            return dict(data)
+        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError):
+            return None
+
+    def update_check(self) -> dict | None:
+        try:
+            data = self._request("POST", "/api/update/check", {}) or {}
+            return dict(data)
+        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError):
+            return None
+
+    def update_set_channel(self, channel: str) -> dict | None:
+        try:
+            data = self._request(
+                "POST", "/api/update/set-channel", {"channel": channel},
+            ) or {}
+            return dict(data)
+        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError):
+            return None
+
 
 # =============================================================================
 # systemd service controller — wraps systemctl.  Needs a polkit rule
@@ -220,9 +250,11 @@ class PrinterTrayApp:
         self.service_state: str = "unknown"
         self._updating_tray = False
         self._service_action_in_flight = False
+        self.update_state: dict | None = None
+        self._notified_update_version: str | None = None
 
         self.window = Gtk.Window(title=APP_NAME)
-        self.window.set_default_size(620, 460)
+        self.window.set_default_size(620, 560)
         self.window.set_icon_name("printer")
         self.window.connect("delete-event", self._on_delete_event)
         self._build_window()
@@ -374,6 +406,50 @@ class PrinterTrayApp:
 
         body.pack_start(action_row, False, False, 0)
 
+        # ---- Updates -------------------------------------------------------
+        # The service's updater does the checking on its own schedule; this
+        # section mirrors its state and offers the same actions as the web
+        # panel. Linux is notify-only: the release page opens in a browser.
+        updates_label = Gtk.Label()
+        updates_label.set_markup("<b>Updates</b>")
+        updates_label.set_xalign(0)
+        body.pack_start(updates_label, False, False, 0)
+
+        updates_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.update_version_label = Gtk.Label(label="v—")
+        updates_row.pack_start(self.update_version_label, False, False, 0)
+
+        self.update_status_label = Gtk.Label(label="—")
+        updates_row.pack_start(self.update_status_label, False, False, 0)
+
+        self.release_btn = Gtk.Button(label="Open release page")
+        self.release_btn.connect("clicked", self._on_open_release_page)
+        self.release_btn.set_sensitive(False)
+        updates_row.pack_end(self.release_btn, False, False, 0)
+
+        self.check_updates_button = Gtk.Button(label="Check now")
+        self.check_updates_button.connect("clicked", self._on_check_updates)
+        updates_row.pack_end(self.check_updates_button, False, False, 0)
+
+        self.channel_combo = Gtk.ComboBoxText()
+        for c in ("stable", "preview"):
+            self.channel_combo.append_text(c)
+        self.channel_combo.set_active(0)
+        self.channel_combo.connect("changed", self._on_channel_changed)
+        updates_row.pack_end(self.channel_combo, False, False, 0)
+
+        ring_label = Gtk.Label(label="Ring:")
+        updates_row.pack_end(ring_label, False, False, 0)
+
+        self.update_note_label = Gtk.Label(label="")
+        self.update_note_label.set_xalign(0)
+        self.update_note_label.set_line_wrap(True)
+        self.update_note_label.set_opacity(0.75)
+        body.pack_start(self.update_note_label, False, False, 0)
+
+        updates_row.set_margin_top(2)
+        body.pack_start(updates_row, False, False, 0)
+
         log_label = Gtk.Label()
         log_label.set_markup("<b>Log</b>")
         log_label.set_xalign(0)
@@ -452,6 +528,23 @@ class PrinterTrayApp:
             item_test.set_sensitive(bool(self.default_printer))
             menu.append(item_test)
 
+            # Updates — visible from the tray even while the window is
+            # hidden, which is where a merge-cut release is most likely to
+            # be noticed first.
+            item_updates = Gtk.MenuItem(label="Check for updates")
+            item_updates.connect("activate", self._on_check_updates)
+            menu.append(item_updates)
+            if (
+                self.update_state
+                and self.update_state.get("status") == "available"
+                and self.update_state.get("available_version")
+            ):
+                item_avail = Gtk.MenuItem(
+                    label=f"Update available — v{self.update_state['available_version']}"
+                )
+                item_avail.connect("activate", self._on_open_release_page)
+                menu.append(item_avail)
+
             menu.append(Gtk.SeparatorMenuItem())
 
             # Service control — match the state-aware enablement used by
@@ -524,6 +617,143 @@ class PrinterTrayApp:
         if self.default_printer:
             self._test_print_async(self.default_printer)
 
+    # ---- Updates handlers --------------------------------------------------
+
+    UPDATE_STATUS_MARKUP = {
+        "idle":        ("", "Idle"),
+        "checking":    ("#c9a227", "Checking…"),
+        "up-to-date":  ("#27ae60", "Up to date"),
+        "available":   ("#c9a227", "Update available"),
+        "downloading": ("#c9a227", "Downloading…"),
+        "installing":  ("#27ae60", "Installing…"),
+        "ready":       ("#27ae60", "Ready"),
+        "error":       ("#c0392b", "Error"),
+    }
+
+    def _apply_update(self, s: dict | None) -> None:
+        if not s:
+            self.update_state = None
+            self.update_status_label.set_text("—")
+            self.update_version_label.set_text("v—")
+            self.release_btn.set_sensitive(False)
+            return
+        self.update_state = s
+        colour, label = self.UPDATE_STATUS_MARKUP.get(
+            s.get("status", "idle"), ("", "—"),
+        )
+        version = s.get("available_version")
+        status_text = label + (f" — v{version}" if version else "")
+        if colour:
+            self.update_status_label.set_markup(
+                f'<span foreground="{colour}" weight="bold">{status_text}</span>'
+            )
+        else:
+            self.update_status_label.set_text(status_text)
+        self.update_version_label.set_text(f"v{s.get('current_version', '?')}")
+        self.release_btn.set_sensitive(
+            s.get("status") == "available" and bool(s.get("release_url"))
+        )
+        self._sync_channel_combo(s)
+        note = (s.get("capability_reason")
+                if s.get("capability") == "notify" else "")
+        if s.get("status") == "error" and s.get("error"):
+            note = s["error"]
+        self.update_note_label.set_text(note or "")
+        self._rebuild_tray_menu()
+        self._maybe_notify_update(s)
+
+    def _sync_channel_combo(self, s: dict) -> None:
+        # Setting the combo inside the refresh loop must not re-trigger the
+        # changed handler; the guard flag handles that.
+        channel = s.get("channel") or "stable"
+        if self.channel_combo.get_active_text() != channel:
+            self._applying_channel = True
+            self.channel_combo.set_active(0 if channel == "stable" else 1)
+            self._applying_channel = False
+
+    def _maybe_notify_update(self, s: dict) -> None:
+        """Proactive notice — exactly once per version, never on every
+        refresh tick. Re-arms only when a DIFFERENT version appears."""
+        version = s.get("available_version")
+        if (
+            s.get("status") != "available"
+            or not version
+            or version == self._notified_update_version
+        ):
+            return
+        self._notified_update_version = version
+        self._log(f"✓ A new version (v{version}) is available.")
+
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK,
+            text=f"A new version (v{version}) is available",
+        )
+        dialog.format_secondary_text(
+            "Open the release page to download and install it. "
+            "The link is also available in the Updates section."
+        )
+        dialog.run()
+        dialog.destroy()
+
+    def _on_check_updates(self, _btn=None) -> None:
+        self.check_updates_button.set_sensitive(False)
+        self._log("Checking for updates…")
+
+        def work():
+            return self.client.update_check()
+
+        def done(result):
+            self.check_updates_button.set_sensitive(True)
+            if not result:
+                self._log("✗ Update check failed (service unreachable).")
+                return
+            status = result.get("status")
+            if status == "available":
+                self._log(f"✓ Update available: v{result.get('available_version')}.")
+            elif status == "up-to-date":
+                self._log(f"✓ Up to date (v{result.get('current_version')}).")
+            elif status == "error":
+                self._log(f"✗ Update check failed: {result.get('error')}")
+            self._apply_update(result)
+
+        self._run_bg(work, done)
+
+    def _on_open_release_page(self, _btn=None) -> None:
+        """Open the release page in the browser (notify path).
+
+        The URL comes from the service, which already pins it to this
+        repo's release pages; the same prefix is re-checked here because
+        this is the one place a URL leaves the app for the OS browser."""
+        url = (self.update_state or {}).get("release_url") or ""
+        if not url.startswith(RELEASE_URL_PREFIX):
+            self._log("✗ No valid release page to open.")
+            return
+        import webbrowser
+        webbrowser.open(url)
+        self._log(f"Opened release page for v{self.update_state.get('available_version')}.")
+
+    def _on_channel_changed(self, _combo=None) -> None:
+        if getattr(self, "_applying_channel", False):
+            return
+        channel = self.channel_combo.get_active_text()
+        if not channel:
+            return
+        self._log(f"Switching update ring to '{channel}' and checking now…")
+
+        def work():
+            return self.client.update_set_channel(channel)
+
+        def done(result):
+            if not result:
+                self._log("✗ Ring change failed (service unreachable).")
+                return
+            self._apply_update(result)
+
+        self._run_bg(work, done)
+
     def _on_test_print_clicked(self, _btn):
         model, tree_iter = self.printer_view.get_selection().get_selected()
         printer = model.get_value(tree_iter, 1) if tree_iter is not None else None
@@ -556,14 +786,16 @@ class PrinterTrayApp:
                 self.client.health(),
                 self.client.list_printers(),
                 self.client.get_settings(),
+                self.client.update_status(),
             )
 
         def done(result):
             if isinstance(result, Exception):
                 self._apply_state("unknown", False, [], {})
                 return
-            state, health, printers, settings = result
+            state, health, printers, settings, update = result
             self._apply_state(state, health is not None, printers, settings)
+            self._apply_update(update)
 
         self._run_bg(work, done)
 
