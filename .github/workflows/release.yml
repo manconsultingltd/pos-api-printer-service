@@ -62,7 +62,9 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          sed -i "s/0\.0\.0-dev/${VERSION}/g" api-printer-service/main.py
+          sed -i "s/0\.0\.0-dev/${VERSION}/g" \
+            api-printer-service/main.py \
+            api-printer-service/service_version.py
           grep -q "version=\"${VERSION}\"" api-printer-service/main.py \
             || { echo "::error::version injection failed in main.py"; grep -n version api-printer-service/main.py; exit 1; }
 
@@ -103,6 +105,10 @@ jobs:
             --collect-data tcl \
             --add-binary "dist/api-printer-service-linux:." \
             --add-data "installers/linux/printer_control_gui.py:." \
+            --add-data "api-printer-service/updater_cli.py:." \
+            --add-data "api-printer-service/update_feed.py:." \
+            --add-data "api-printer-service/update_settings.py:." \
+            --add-data "api-printer-service/service_version.py:." \
             --add-data "installers/linux/api-printer-gui.desktop:." \
             installers/linux/installer_gui.py
 
@@ -130,6 +136,7 @@ jobs:
           set -euo pipefail
           sed -i "s/0\.0\.0-dev/${VERSION}/g" \
             api-printer-service/main.py \
+            api-printer-service/service_version.py \
             api-printer-service/installers/windows/setup.nsi
           grep -q "version=\"${VERSION}\"" api-printer-service/main.py \
             || { echo "::error::version injection failed in main.py"; exit 1; }

@@ -41,6 +41,7 @@ from update_settings import (
     is_update_channel,
     read_update_settings,
     write_update_settings,
+    update_lock,
 )
 
 logger = logging.getLogger(__name__)
@@ -206,6 +207,15 @@ class Updater:
         response is sent first, and the caller must treat a successful
         'installing' state as 'goodbye'.
         """
+        # The out-of-service updater (updater_cli.py scheduled task) shares
+        # this lock: two installers racing the same machine is the one
+        # failure mode that must be impossible.
+        with update_lock(self.settings_file) as acquired:
+            if not acquired:
+                raise UpdateError("another updater is already working")
+            return self._install_locked()
+
+    def _install_locked(self) -> Dict[str, Any]:
         st = self.state()
         if self._cap["capability"] != "auto":
             raise UpdateError("auto-install is not available on this platform")
