@@ -208,6 +208,26 @@
   </div>
 
   <div class="card">
+    <div class="head">
+      Updates
+      <span class="state"><span class="dot" id="upd-dot"></span><span id="upd-label">…</span></span>
+    </div>
+    <div class="body">
+      <div class="row">
+        <span class="muted" id="upd-version"></span>
+        <select id="upd-channel">
+          <option value="stable">Stable</option>
+          <option value="preview">Preview</option>
+        </select>
+        <button id="btn-upd-check" class="primary">Check now</button>
+        <button id="btn-upd-install" disabled>Install update</button>
+        <a id="upd-link" href="#" target="_blank" rel="noreferrer" style="display:none">Release notes ↗</a>
+      </div>
+      <div id="upd-note" class="muted" style="margin-top:8px;font-size:12px"></div>
+    </div>
+  </div>
+
+  <div class="card">
     <div class="head">Log</div>
     <div class="body">
       <div class="log" id="log"></div>
@@ -392,6 +412,68 @@
     }
   });
 
+  // ── Updates ───────────────────────────────────────────────────────────────
+  const UPD_STATES = {
+    idle:       { cls: "",     label: "Idle" },
+    checking:   { cls: "warn", label: "Checking…" },
+    "up-to-date": { cls: "ok",   label: "Up to date" },
+    available:  { cls: "warn", label: "Update available" },
+    downloading:{ cls: "warn", label: "Downloading…" },
+    installing: { cls: "ok",   label: "Installing…" },
+    ready:      { cls: "ok",   label: "Ready" },
+    error:      { cls: "fail", label: "Error" },
+  };
+
+  function renderUpdate(s) {
+    const st = UPD_STATES[s.status] || UPD_STATES.idle;
+    $("upd-dot").className = "dot " + st.cls;
+    $("upd-label").textContent = st.label + (s.available_version ? " — v" + s.available_version : "");
+    $("upd-version").textContent = "v" + s.current_version;
+    $("upd-channel").value = s.channel || "stable";
+    $("btn-upd-install").disabled = !(s.capability === "auto" && s.status === "available");
+    const link = $("upd-link");
+    if (s.release_url && s.capability !== "auto") {
+      link.href = s.release_url;
+      link.style.display = "";
+    } else {
+      link.style.display = "none";
+    }
+    $("upd-note").textContent = s.capability === "notify" && s.capability_reason
+      ? s.capability_reason : "";
+  }
+
+  async function refreshUpdate() {
+    try { renderUpdate(await api("GET", "/api/update/status")); }
+    catch (_) { $("upd-label").textContent = "Unavailable"; }
+  }
+
+  $("upd-channel").addEventListener("change", async () => {
+    try {
+      renderUpdate(await api("POST", "/api/update/set-channel", { channel: $("upd-channel").value }));
+    } catch (e) { log("✗ Ring change failed: " + e.message, "fail"); }
+  });
+
+  $("btn-upd-check").addEventListener("click", async () => {
+    $("btn-upd-check").disabled = true;
+    try { renderUpdate(await api("POST", "/api/update/check")); }
+    catch (e) { log("✗ Update check failed: " + e.message, "fail"); }
+    finally { $("btn-upd-check").disabled = false; }
+  });
+
+  $("btn-upd-install").addEventListener("click", async () => {
+    if (!confirm("Download and install the update? The service will restart automatically.")) return;
+    $("btn-upd-install").disabled = true;
+    log("→ Downloading update…");
+    try {
+      await api("POST", "/api/update/install");
+      log("Update installing. The service will restart into the new version.", "ok");
+      pollUntilBack(40);
+    } catch (e) {
+      log("✗ Update failed: " + e.message, "fail");
+      refreshUpdate();
+    }
+  });
+
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => (
       { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
@@ -402,8 +484,10 @@
 
   // Initial load + periodic refresh
   refreshStatus().then(refreshPrinters);
+  refreshUpdate();
   setInterval(refreshStatus, 5000);
   setInterval(refreshPrinters, 15000);
+  setInterval(refreshUpdate, 10000);
 })();
 </script>
 

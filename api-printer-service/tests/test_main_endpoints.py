@@ -34,3 +34,17 @@ def test_blocking_endpoints_run_in_threadpool():
                 f"{route.path} must be a sync def (threadpool), not async"
             )
     assert seen == BLOCKING_PATHS
+
+
+def test_update_blocking_endpoints_run_in_threadpool():
+    """The update check/install do network + disk I/O: same rule as printing —
+    sync def, threadpool, event loop stays responsive."""
+    import inspect as _inspect
+    from fastapi.routing import APIRoute as _APIRoute
+    blocking = {"/api/update/check", "/api/update/set-channel", "/api/update/install"}
+    seen = set()
+    for route in main.app.routes:
+        if isinstance(route, _APIRoute) and route.path in blocking:
+            seen.add(route.path)
+            assert not _inspect.iscoroutinefunction(route.endpoint)
+    assert seen == blocking

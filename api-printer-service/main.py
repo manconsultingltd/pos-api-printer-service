@@ -23,6 +23,11 @@ from printer_manager import PrinterManager
 from pydantic import BaseModel, Field
 
 import service_controller
+from updater import UpdateError, get_updater, init_updater
+from update_settings import (
+    is_update_channel,
+    update_settings_path,
+)
 
 # Configure logging - both file and console
 # Path is platform-aware (or overridden via LOG_FILE env var)
@@ -123,6 +128,76 @@ async def startup_event():
         logger.info(f"Available printers: {[p['name'] for p in printers]}")
     else:
         logger.warning("No printers found in CUPS")
+
+    # Self-update scheduler. Failing to set it up must not abort boot — the
+    # service keeps printing on the version it already has.
+    try:
+        updater = init_updater(app.version, update_settings_path(Config.SETTINGS_FILE))
+        logger.info(
+            "Updater initialized (capability=%s, version=%s)",
+            updater.state()["capability"],
+            app.version,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error("Updater init failed: %s", e)
+
+
+# === Update endpoints ===
+
+
+class UpdateChannelModel(BaseModel):
+    channel: str
+
+
+@app.get("/api/update/status")
+async def update_status() -> Dict[str, Any]:
+    """Current self-update state (idle / checking / available / error, ...)."""
+    u = get_updater()
+    if updater_missing(u):
+        raise HTTPException(status_code=503, detail="Updater not initialized")
+    return u.state()
+
+
+@app.post("/api/update/check")
+def update_check() -> Dict[str, Any]:
+    """Run an update check against the GitHub Releases feed now."""
+    u = get_updater()
+    if updater_missing(u):
+        raise HTTPException(status_code=503, detail="Updater not initialized")
+    try:
+        return u.check()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Update check failed: {e}")
+
+
+@app.post("/api/update/set-channel")
+def update_set_channel(body: UpdateChannelModel) -> Dict[str, Any]:
+    """Switch update ring (stable / preview). Input validated in the updater."""
+    u = get_updater()
+    if updater_missing(u):
+        raise HTTPException(status_code=503, detail="Updater not initialized")
+    if not is_update_channel(body.channel):
+        raise HTTPException(status_code=400, detail="Invalid channel")
+    return u.set_channel(body.channel)
+
+
+@app.post("/api/update/install")
+def update_install() -> Dict[str, Any]:
+    """Auto path only (Windows): download the release's installer and run it
+    silently. The service is stopped and restarted by the installer itself."""
+    u = get_updater()
+    if updater_missing(u):
+        raise HTTPException(status_code=503, detail="Updater not initialized")
+    if u.state()["capability"] != "auto":
+        raise HTTPException(status_code=409, detail="Auto-install unavailable on this platform")
+    try:
+        return u.install()
+    except UpdateError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def updater_missing(u) -> bool:
+    return u is None
 
 
 # === Request/Response Models ===
