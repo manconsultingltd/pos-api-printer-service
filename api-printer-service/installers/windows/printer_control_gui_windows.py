@@ -11,9 +11,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
+import webbrowser
 import tkinter as tk
 from functools import partial
 from tkinter import messagebox, ttk
@@ -35,6 +37,10 @@ except ImportError:
     _TRAY_AVAILABLE = False
 
 API_URL = os.environ.get("API_PRINTER_URL", "http://127.0.0.1:5058")
+# Release pages are the only URL this GUI may hand to the OS browser.
+RELEASE_URL_PREFIX_RE = re.compile(
+    r"^https://github\.com/manconsultingltd/pos-api-printer-service/releases/.+"
+)
 APP_NAME = "API Printer Service"
 TASK_NAME = "API Printer Service"
 DEFAULT_PAPER_WIDTH = 58
@@ -332,6 +338,8 @@ class PrinterControlApp:
         self.service_up: bool = False
         self.service_state: str = "unknown"
         self._service_action_in_flight = False
+        self.update_state: dict | None = None
+        self._notified_update_version: str | None = None
         self._tray_icon: Any = None
 
         self.root.title(APP_NAME)
@@ -583,9 +591,12 @@ class PrinterControlApp:
 
     def _apply_update(self, s: dict | None) -> None:
         if not s:
+            self.update_state = None
             self.update_status_label.config(text="—", foreground="#666666")
+            self.update_version_label.config(foreground="#000000")
             self.update_install_btn.config(state="disabled")
             return
+        self.update_state = s
         colour, label = self.UPDATE_STATUS_LABELS.get(
             s.get("status", "idle"), ("", "—"),
         )
@@ -594,7 +605,13 @@ class PrinterControlApp:
             text=label + (f" — v{version}" if version else ""),
             foreground=colour,
         )
-        self.update_version_label.config(text=f"v{s.get('current_version', '?')}")
+        # The running version turns amber while an update is pending, so the
+        # availability is visible at a glance even from the header.
+        self.update_version_label.config(
+            text=f"v{s.get('current_version', '?')}",
+            foreground=colour or "#000000",
+        )
+        self._maybe_notify_update(s)
         channel = s.get("channel") or "stable"
         # Re-setting .set() inside the 10s refresh loop must not re-trigger
         # the channel-change handler; the guard flag handles that.
@@ -640,6 +657,28 @@ class PrinterControlApp:
 
         self._run_bg(work, done)
 
+    def _maybe_notify_update(self, s: dict) -> None:
+        """Proactive notice — exactly once per version, never on every
+        refresh tick. Re-arms only when a DIFFERENT version appears."""
+        version = s.get("available_version")
+        if (
+            s.get("status") != "available"
+            or not version
+            or version == self._notified_update_version
+        ):
+            return
+        self._notified_update_version = version
+        self._log(f"A new version (v{version}) is available.", "ok")
+        if s.get("capability") != "auto":
+            return  # notify platform: the frame's release link is the action
+        if messagebox.askyesno(
+            APP_NAME,
+            f"A new version (v{version}) is available.\n\n"
+            "Install it now? The service will stop and restart "
+            "automatically into the new version.",
+        ):
+            self._do_update_install()
+
     def _on_update_install(self) -> None:
         if not messagebox.askyesno(
             APP_NAME,
@@ -648,6 +687,9 @@ class PrinterControlApp:
             "new version.",
         ):
             return
+        self._do_update_install()
+
+    def _do_update_install(self) -> None:
         self.update_install_btn.config(state="disabled")
         self._log("Downloading update installer…")
 
@@ -665,6 +707,19 @@ class PrinterControlApp:
             )
 
         self._run_bg(work, done)
+
+    def _open_release_page(self) -> None:
+        """Open the release page in the browser (notify path).
+
+        The URL comes from the service, which already pins it to this
+        repo's release pages; the same prefix is re-checked here because
+        this is the one place a URL leaves the app for the OS browser."""
+        url = (self.update_state or {}).get("release_url") or ""
+        if not RELEASE_URL_PREFIX_RE.match(url):
+            self._log("No valid release page to open.", "err")
+            return
+        webbrowser.open(url)
+        self._log(f"Opened release page for v{self.update_state.get('available_version')}.")
 
     def _on_update_channel_changed(self, _event=None) -> None:
         if getattr(self, "_applying_channel", False):
@@ -755,6 +810,28 @@ class PrinterControlApp:
             self._tray_test_print,
             enabled=bool(self.default_printer),
         )
+
+        # Updates — tray callbacks run on the pystray thread and must
+        # marshal Tk work back onto the main thread.
+        yield TrayMenuItem(
+            "Check for updates",
+            lambda _i, _item: self.root.after(0, self._on_update_check),
+        )
+        if (
+            self.update_state
+            and self.update_state.get("status") == "available"
+            and self.update_state.get("available_version")
+        ):
+            version = self.update_state["available_version"]
+            installable = self.update_state.get("capability") == "auto"
+            action = (self._do_update_install if installable
+                      else self._open_release_page)
+            yield TrayMenuItem(
+                f"Update available — v{version}"
+                + (" (install)" if installable else " (release page)"),
+                lambda _i, _item: self.root.after(0, action),
+                default=installable,
+            )
 
         yield TrayMenu.SEPARATOR
 
