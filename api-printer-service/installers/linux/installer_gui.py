@@ -25,6 +25,34 @@ DEFAULT_INSTALL_DIR = "/opt/api-printer-service"
 LOG_FILE   = "/var/log/api-printer.log"
 SERVICE_BINARY_NAME = "api-printer-service-linux"
 GUI_SCRIPT_NAME     = "printer_control_gui.py"
+# Out-of-service updater: the CLI + its stdlib-only dependencies ship as
+# data files in the installer bundle and are extracted next to the service
+# binary, so the systemd timer can run them with the system python3.
+UPDATER_FILES = (
+    "updater_cli.py", "update_feed.py",
+    "update_settings.py", "service_version.py",
+)
+UPDATER_SERVICE_UNIT = """\
+[Unit]
+Description=API Printer Service self-update worker
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 {install_dir}/updater_cli.py
+"""
+UPDATER_TIMER_UNIT = """\
+[Unit]
+Description=Run the API Printer Service updater hourly
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+Unit=api-printer-updater.service
+
+[Install]
+WantedBy=timers.target
+"""
 DESKTOP_ENTRY_NAME  = "api-printer-gui.desktop"
 LAUNCHER_PATH       = "/usr/bin/api-printer-gui"
 APPLICATIONS_DESKTOP_PATH = f"/usr/share/applications/{DESKTOP_ENTRY_NAME}"
@@ -300,10 +328,12 @@ def run_install_steps(install_dir: str, log_fn, progress_fn):
         ( 15, "Creating directories",              _step_mkdir),
         ( 30, "Installing service binary",         _step_copy_service),
         ( 45, "Installing GUI",                    _step_copy_gui),
+        ( 50, "Installing standalone updater",     _step_copy_updater),
         ( 60, "Installing GUI dependencies",       _step_apt_deps),
         ( 75, "Registering desktop launcher",      _step_desktop),
         ( 85, "Granting GUI service permissions",  _step_polkit),
-        ( 95, "Registering systemd service",       _step_systemd),
+        ( 90, "Registering systemd service",       _step_systemd),
+        ( 95, "Registering update timer",          _step_updater_timer),
         (100, "Done",                              None),
     ]
     for pct, label, fn in steps:
@@ -387,6 +417,49 @@ def _step_copy_gui(install_dir, log):
     log(f"  copy {GUI_SCRIPT_NAME}")
     shutil.copy2(src, dst)
     dst.chmod(0o755)
+
+def _step_copy_updater(install_dir, log):
+    # Extract the standalone updater (CLI + pure modules) next to the
+    # service binary. It runs with the SYSTEM python3 from a systemd timer,
+    # independent of the service process — this is what keeps a broken
+    # build from wedging updates forever.
+    for name in UPDATER_FILES:
+        src = BUNDLE_DIR / name
+        if not src.exists():
+            raise FileNotFoundError(
+                f"Updater file not found in installer bundle ({src}). "
+                "The installer was built incorrectly — re-run the CI "
+                "build-linux step."
+            )
+        dst = Path(install_dir) / name
+        log(f"  copy {name}")
+        shutil.copy2(src, dst)
+        dst.chmod(0o644)
+
+
+def _step_updater_timer(install_dir, log):
+    for name, body in (
+        ("api-printer-updater.service", UPDATER_SERVICE_UNIT),
+        ("api-printer-updater.timer", UPDATER_TIMER_UNIT),
+    ):
+        unit = Path(f"/etc/systemd/system/{name}")
+        log(f"  writing {unit}")
+        unit.write_text(body.format(install_dir=install_dir))
+    for cmd in [
+        ["systemctl", "daemon-reload"],
+        ["systemctl", "enable", "--now", "api-printer-updater.timer"],
+    ]:
+        log(f"  {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                env=_system_env())
+        for line in (result.stdout + result.stderr).splitlines():
+            if line.strip():
+                log(f"    {line}")
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip() \
+                     or f"exit status {result.returncode}"
+            raise RuntimeError(f"`{' '.join(cmd)}` failed:\n{detail}")
+
 
 def _step_apt_deps(install_dir, log):
     """

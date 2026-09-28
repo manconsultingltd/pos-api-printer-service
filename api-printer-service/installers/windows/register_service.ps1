@@ -21,7 +21,8 @@ param(
 # Control Panel screens stuck on "Service: Unknown".
 $ErrorActionPreference = "Stop"
 
-$TaskName  = "API Printer Service"
+$TaskName     = "API Printer Service"
+$UpdaterTask  = "API Printer Updater"
 $Python    = Join-Path $InstallDir "python\python.exe"
 $MainPy    = Join-Path $InstallDir "main.py"
 # Task runs as SYSTEM which has no real APPDATA — use ProgramData, the
@@ -160,16 +161,56 @@ set PYTHONUNBUFFERED=1
 
     Start-ScheduledTask -TaskName $TaskName
 
+    # --- Out-of-service updater task (independent of the service) ---------
+    # Runs hourly as SYSTEM with the bundled Python; whether updates happen
+    # is decided by the shared 24h throttle in update-settings.json, so the
+    # hourly cadence is just the sampling rate. This is the self-healing
+    # path: it works while the service is dead, so a broken build gets
+    # replaced by the next release without human intervention.
+    $UpdaterPy = Join-Path $InstallDir "updater_cli.py"
+    if (Test-Path $UpdaterPy) {
+        if (Get-ScheduledTask -TaskName $UpdaterTask -ErrorAction SilentlyContinue) {
+            Unregister-ScheduledTask -TaskName $UpdaterTask -Confirm:$false -ErrorAction SilentlyContinue
+        }
+        $UpdaterAction = New-ScheduledTaskAction `
+            -Execute          "$Python" `
+            -Argument         "`"$UpdaterPy`"" `
+            -WorkingDirectory $InstallDir
+        $UpdaterTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+            -RepetitionInterval (New-TimeSpan -Hours 1) `
+            -RepetitionDuration (New-TimeSpan -Days 3650)
+        $UpdaterSettings = New-ScheduledTaskSettingsSet `
+            -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
+            -MultipleInstances IgnoreNew `
+            -StartWhenAvailable
+        try {
+            Register-ScheduledTask `
+                -TaskName  $UpdaterTask `
+                -Action    $UpdaterAction `
+                -Trigger   $UpdaterTrigger `
+                -Settings  $UpdaterSettings `
+                -Principal $Principal `
+                -Force | Out-Null
+        } catch {
+            # Best effort: a failed updater task must not fail the service
+            # install (the service itself is the critical piece).
+            $msg = "Updater task registration failed (non-fatal): $($_.Exception.Message)"
+            Add-Content -Path $StartupErrLog -Value $msg -ErrorAction SilentlyContinue
+        }
+    }
+
 } elseif ($Action -eq "uninstall") {
 
     # Same defensive removal as the install path: never let a stuck task
     # abort the uninstaller. Fall back to schtasks.exe if the cmdlet throws.
-    if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
-        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        try {
-            Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop | Out-Null
-        } catch {
-            & schtasks.exe /Delete /TN $TaskName /F *> $null
+    foreach ($name in @($TaskName, $UpdaterTask)) {
+        if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
+            Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            try {
+                Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop | Out-Null
+            } catch {
+                & schtasks.exe /Delete /TN $name /F *> $null
+            }
         }
     }
 }

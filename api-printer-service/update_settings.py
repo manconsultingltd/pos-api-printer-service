@@ -13,10 +13,12 @@ Design notes:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
-from typing import Any, Dict, Optional
+import time
+from typing import Any, Dict, Iterator, Optional
 
 UPDATE_CHANNELS = ("stable", "preview")
 DEFAULT_CHANNEL = "stable"
@@ -111,3 +113,46 @@ def is_newer_version(candidate: str, current: str) -> bool:
     if c is None or cur is None:
         return False
     return c > cur
+
+
+# --- shared install lock -----------------------------------------------------
+# Two updaters exist by design: the in-service one (drive by /api/update/*)
+# and the OUT-OF-SERVICE scheduled one (updater_cli.py, works while the
+# service is dead). Both must never download/install concurrently — the lock
+# file lives next to the settings file and is taken for the whole
+# download+launch span. O_EXCL makes creation atomic; a lock older than an
+# hour is stale (crashed holder) and may be broken.
+
+LOCK_MAX_AGE_S = 60 * 60
+
+
+@contextlib.contextmanager
+def update_lock(settings_file: str) -> Iterator[bool]:
+    """Yield True when the lock was acquired, False when someone else is
+    mid-update (the caller should skip quietly)."""
+    lock_path = os.path.join(
+        os.path.dirname(os.path.abspath(settings_file)), "update.lock"
+    )
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    try:
+        if os.path.exists(lock_path) and \
+                time.time() - os.path.getmtime(lock_path) > LOCK_MAX_AGE_S:
+            os.unlink(lock_path)  # stale — crashed holder
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        yield False
+        return
+    except OSError:
+        # Can't create the lock dir/file: better to let the caller proceed
+        # unlocked than to make updates impossible.
+        yield True
+        return
+    try:
+        os.write(fd, str(os.getpid()).encode())
+        yield True
+    finally:
+        try:
+            os.close(fd)
+            os.unlink(lock_path)
+        except OSError:
+            pass
