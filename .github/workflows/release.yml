@@ -105,10 +105,10 @@ jobs:
             --collect-data tcl \
             --add-binary "dist/api-printer-service-linux:." \
             --add-data "installers/linux/printer_control_gui.py:." \
-            --add-data "api-printer-service/updater_cli.py:." \
-            --add-data "api-printer-service/update_feed.py:." \
-            --add-data "api-printer-service/update_settings.py:." \
-            --add-data "api-printer-service/service_version.py:." \
+            --add-data "updater_cli.py:." \
+            --add-data "update_feed.py:." \
+            --add-data "update_settings.py:." \
+            --add-data "service_version.py:." \
             --add-data "installers/linux/api-printer-gui.desktop:." \
             installers/linux/installer_gui.py
 
