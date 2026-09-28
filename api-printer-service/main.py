@@ -6,6 +6,7 @@ Port: 5058
 Base URL: http://localhost:5058
 """
 
+import asyncio
 import logging
 import subprocess
 import sys
@@ -94,40 +95,24 @@ printer_manager = PrinterManager()
 @app.on_event("startup")
 async def startup_event():
     """
-    Ensure USB printer is properly configured on service start.
-    USB auto-setup only runs on Linux, and only if the optional
-    /usr/local/bin/setup-usb-printer.sh helper is present.
+    Non-blocking startup housekeeping.
+
+    Everything that can block — the USB setup script (30s subprocess) and
+    printer enumeration (win32print.EnumPrinters / lpstat can stall for a
+    long time on a machine with NO printers attached or a cold spooler) —
+    runs in worker threads as a fire-and-forget task. Blocking here blocks
+    the event loop, which means the whole HTTP service stays down until it
+    finishes; a hung spooler query would look like the web service being
+    "stuck" while the task itself shows Running.
     """
     if Config.IS_LINUX:
-        logger.info("Running USB printer setup check...")
-        try:
-            result = subprocess.run(
-                ["/usr/local/bin/setup-usb-printer.sh"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.stdout:
-                logger.info(f"Printer setup output: {result.stdout.strip()}")
-            if result.stderr:
-                logger.warning(f"Printer setup warnings: {result.stderr.strip()}")
-            if result.returncode == 0:
-                logger.info("USB printer setup completed successfully")
-            else:
-                logger.warning(f"Printer setup exited with code {result.returncode}")
-        except subprocess.TimeoutExpired:
-            logger.error("Printer setup script timed out after 30 seconds")
-        except FileNotFoundError:
-            logger.debug("USB printer setup script not found — skipping")
-        except Exception as e:
-            logger.error(f"Error running printer setup: {e}")
+        asyncio.get_running_loop().run_in_executor(
+            None, _run_usb_printer_setup,
+        )
 
-    # Log current printer status
-    printers = printer_manager.list_printers()
-    if printers:
-        logger.info(f"Available printers: {[p['name'] for p in printers]}")
-    else:
-        logger.warning("No printers found in CUPS")
+    asyncio.get_running_loop().run_in_executor(
+        None, _log_printer_status,
+    )
 
     # Self-update scheduler. Failing to set it up must not abort boot — the
     # service keeps printing on the version it already has.
@@ -140,6 +125,45 @@ async def startup_event():
         )
     except Exception as e:  # noqa: BLE001
         logger.error("Updater init failed: %s", e)
+
+
+def _run_usb_printer_setup() -> None:
+    """Linux-only USB auto-setup, in a worker thread (see startup_event)."""
+    logger.info("Running USB printer setup check...")
+    try:
+        result = subprocess.run(
+            ["/usr/local/bin/setup-usb-printer.sh"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.stdout:
+            logger.info(f"Printer setup output: {result.stdout.strip()}")
+        if result.stderr:
+            logger.warning(f"Printer setup warnings: {result.stderr.strip()}")
+        if result.returncode == 0:
+            logger.info("USB printer setup completed successfully")
+        else:
+            logger.warning(f"Printer setup exited with code {result.returncode}")
+    except subprocess.TimeoutExpired:
+        logger.error("Printer setup script timed out after 30 seconds")
+    except FileNotFoundError:
+        logger.debug("USB printer setup script not found — skipping")
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Error running printer setup: {e}")
+
+
+def _log_printer_status() -> None:
+    """Log the printer list once at boot, in a worker thread."""
+    try:
+        printers = printer_manager.list_printers()
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Printer enumeration failed: {e}")
+        return
+    if printers:
+        logger.info(f"Available printers: {[p['name'] for p in printers]}")
+    else:
+        logger.warning("No printers found in CUPS")
 
 
 # === Update endpoints ===
