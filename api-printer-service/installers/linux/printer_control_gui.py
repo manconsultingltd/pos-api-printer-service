@@ -143,19 +143,38 @@ class PrinterServiceClient:
     # ---- Self-update (the service runs the scheduler; the GUI only reads
     # state and presses the same buttons the web panel does) ---------------
 
+    def _update_error(self, e: Exception) -> dict:
+        """HTTP errors carry a body worth surfacing: a 404 here means the
+        RUNNING service predates the self-update feature (old installer) —
+        a very different message from 'the service is unreachable'."""
+        if isinstance(e, HTTPError):
+            try:
+                detail = json.loads(e.read()).get("detail", str(e))
+            except Exception:
+                detail = str(e)
+            if e.code == 404:
+                detail = (
+                    "the running service does not have the update endpoints "
+                    "(older version) — reinstall from the latest release"
+                )
+            elif e.code == 503:
+                detail = f"service updater is not initialized: {detail}"
+            return {"error": detail}
+        return {"error": str(e)}
+
     def update_status(self) -> dict | None:
         try:
             data = self._request("GET", "/api/update/status") or {}
             return dict(data)
-        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError):
-            return None
+        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError) as e:
+            return self._update_error(e)
 
     def update_check(self) -> dict | None:
         try:
             data = self._request("POST", "/api/update/check", {}) or {}
             return dict(data)
-        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError):
-            return None
+        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError) as e:
+            return self._update_error(e)
 
     def update_set_channel(self, channel: str) -> dict | None:
         try:
@@ -163,8 +182,8 @@ class PrinterServiceClient:
                 "POST", "/api/update/set-channel", {"channel": channel},
             ) or {}
             return dict(data)
-        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError):
-            return None
+        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError) as e:
+            return self._update_error(e)
 
 
 # =============================================================================
@@ -631,6 +650,10 @@ class PrinterTrayApp:
     }
 
     def _apply_update(self, s: dict | None) -> None:
+        # An error-only payload ({"error": ...}, from a 404/503 on an old
+        # service) must render like "no data", not as a pseudo-state.
+        if s is not None and s.get("error") and not s.get("status"):
+            s = None
         if not s:
             self.update_state = None
             self.update_status_label.set_text("—")
@@ -710,6 +733,9 @@ class PrinterTrayApp:
             if not result:
                 self._log("✗ Update check failed (service unreachable).")
                 return
+            if result.get("error") and not result.get("status"):
+                self._log(f"✗ Update check failed: {result['error']}")
+                return
             status = result.get("status")
             if status == "available":
                 self._log(f"✓ Update available: v{result.get('available_version')}.")
@@ -749,6 +775,9 @@ class PrinterTrayApp:
         def done(result):
             if not result:
                 self._log("✗ Ring change failed (service unreachable).")
+                return
+            if result.get("error") and not result.get("status"):
+                self._log(f"✗ Ring change failed: {result['error']}")
                 return
             self._apply_update(result)
 
