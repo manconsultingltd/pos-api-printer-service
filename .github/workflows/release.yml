@@ -240,18 +240,21 @@ jobs:
       - name: Create SHA256SUMS.txt
         # Every release asset must be covered by SHA256SUMS.txt — promote
         # fails closed if the checksum manifest is missing or incomplete.
+        # Hashes are computed over flat staging copies so the manifest names
+        # match the release asset names exactly (promote downloads assets
+        # flat). The manifest is generated in the staging dir, never
+        # sed-rewritten, so sha256sum --check passes as written.
         run: |
           set -euo pipefail
-          cd artifacts
-          sha256sum \
-            "api-printer-installer-linux/api-printer-installer-linux" \
-            "api-printer-setup-windows/api-printer-setup-windows.exe" \
-            > SHA256SUMS.txt
-          # Rewrite paths so the manifest is flat (promote downloads assets
-          # flat, and the promote verifier compares the exact file list).
-          sed -i 's#  api-printer-installer-linux/api-printer-installer-linux$#  api-printer-installer-linux#; s#  api-printer-setup-windows/api-printer-setup-windows.exe#  api-printer-setup-windows.exe#' SHA256SUMS.txt
-          sha256sum --check --strict SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          mkdir -p artifacts/stage
+          cp artifacts/api-printer-installer-linux/api-printer-installer-linux artifacts/stage/
+          cp artifacts/api-printer-setup-windows/api-printer-setup-windows.exe artifacts/stage/
+          (
+            cd artifacts/stage
+            sha256sum api-printer-installer-linux api-printer-setup-windows.exe > ../SHA256SUMS.txt
+            sha256sum --check --strict ../SHA256SUMS.txt
+          )
+          cat artifacts/SHA256SUMS.txt
 
       - name: Create GitHub Release
         env:
