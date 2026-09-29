@@ -196,14 +196,14 @@ figure{margin:0}figure img{display:block;width:100%;height:auto;border:1px solid
 <body>
 <header><div class="w"><a class="logo" href="#top"><svg width="30" height="30" viewBox="0 0 28 28" aria-hidden="true"><rect x=".5" y=".5" width="27" height="27" rx="7" fill="#172640" stroke="#2C4B73"/><rect x="9" y="5" width="10" height="3" fill="#E8EDF5"/><rect x="7" y="8" width="14" height="6" fill="#5CB8F5"/><rect x="9" y="14" width="10" height="3" fill="#E8EDF5"/><rect x="11" y="17" width="6" height="5" fill="#97A5BB"/></svg><span>API Printer <span style="color:var(--acc)">Service</span></span></a>
 <nav><a href="#how">How it works</a><a href="#features">Features</a><a href="#modes">Print modes</a><a href="#api">API</a><a href="#install">Install</a></nav>
-<a class="btn sm" href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener noreferrer">Download</a></div></header>
+<a class="btn sm" href="https://github.com/manconsultingltd/pos-api-printer-service/releases/latest" target="_blank" rel="noopener noreferrer">Download</a></div></header>
 
 <main id="top">
 <div class="w hero">
 <div>
 <h1>Print POS receipts in under a second.</h1>
 <p>A free service for POSAwesome that sends receipts straight to your thermal printer as ESC/POS commands. No print dialog, no waiting at the counter, and if it's ever unavailable the browser print dialog takes over.</p>
-<div class="cta"><a class="btn" href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener noreferrer">Download the installer</a><a class="btn o" href="https://github.com/manconsultingltd/pos-api-printer-service" target="_blank" rel="noopener noreferrer">View on GitHub</a></div>
+<div class="cta"><a class="btn" href="https://github.com/manconsultingltd/pos-api-printer-service/releases/latest" target="_blank" rel="noopener noreferrer">Download the installer</a><a class="btn o" href="https://github.com/manconsultingltd/pos-api-printer-service" target="_blank" rel="noopener noreferrer">View on GitHub</a></div>
 <p class="fine">Open source (MIT). For Linux and Windows. Works with 58 mm and 80 mm paper.</p>
 </div>
 <div aria-label="Example of a printed receipt">
@@ -353,7 +353,7 @@ curl http://localhost:5058/api/printers
 <p class="lede">Prebuilt, self-contained installers from CI, or run from source if you prefer.</p>
 <div class="ins">
 <ol class="steps">
-<li><strong>Download the installer</strong>Grab the <code>.run</code> (Linux) or <code>.exe</code> (Windows) from the <a href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a> page. Fully self-contained, no Python on the target machine.</li>
+<li><strong>Download the installer</strong>Grab the <code>.run</code> (Linux) or <code>.exe</code> (Windows) from the <a href="https://github.com/manconsultingltd/pos-api-printer-service/releases/latest" target="_blank" rel="noopener noreferrer">GitHub Releases</a> page. Fully self-contained, no Python on the target machine.</li>
 <li><strong>Create the Print Format</strong>Sales Invoice, Custom Format on. Start the HTML with the API-print marker <code>&lt;!--API_PRINT_ESC_POS_THERMAL_80MM--&gt;</code> (or <code>58MM</code> for narrow paper), then paste the <a href="https://github.com/manconsultingltd/pos-api-printer-service/blob/main/api-printer-service/print_format_literal_80mm.html" target="_blank" rel="noopener noreferrer">literal 80mm example</a>.</li>
 <li><strong>Set it on the POS Profile</strong>Assign the Print Format to your POS Profile. POSAwesome sees the marker and routes receipts to <code>localhost:5058</code>.</li>
 <li><strong>Open the control panel</strong>Visit <code>http://localhost:5058/</code> to pick your default printer, review the log and fire a test print. On Windows you can also use the tray icon.</li>
@@ -371,7 +371,7 @@ python main.py   # serves on 127.0.0.1:5058</pre></div>
 <section class="final"><div class="w"><div class="fc">
 <h2>Stop waiting for the print dialog.</h2>
 <p class="lede">Free, open source, and installed on the counter in minutes. Want it set up for you? MAN Consulting can install it and design print formats for your country's fiscal rules.</p>
-<div class="fb2"><a class="btn lg" href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener noreferrer">Download the latest release</a><a class="btn o lg" href="https://manconsulting.co.uk" target="_blank" rel="noopener noreferrer">Talk to MAN Consulting</a></div>
+<div class="fb2"><a class="btn lg" href="https://github.com/manconsultingltd/pos-api-printer-service/releases/latest" target="_blank" rel="noopener noreferrer">Download the latest release</a><a class="btn o lg" href="https://manconsulting.co.uk" target="_blank" rel="noopener noreferrer">Talk to MAN Consulting</a></div>
 </div></div></section>
 </main>
 
