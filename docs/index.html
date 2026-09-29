@@ -201,14 +201,14 @@ figure{margin:0}figure img{display:block;width:100%;height:auto;border:1px solid
 <body>
 <header><div class="w"><a class="logo" href="#top"><svg width="30" height="30" viewBox="0 0 28 28" aria-hidden="true"><rect x=".5" y=".5" width="27" height="27" rx="7" fill="#172640" stroke="#2C4B73"/><rect x="9" y="5" width="10" height="3" fill="#E8EDF5"/><rect x="7" y="8" width="14" height="6" fill="#5CB8F5"/><rect x="9" y="14" width="10" height="3" fill="#E8EDF5"/><rect x="11" y="17" width="6" height="5" fill="#97A5BB"/></svg><span>API Printer <span style="color:var(--acc)">Service</span></span></a>
 <nav><a href="#how">How it works</a><a href="#features">Features</a><a href="#modes">Print modes</a><a href="#api">API</a><a href="#install">Install</a><a href="#faq">FAQ</a></nav>
-<a class="btn sm" href="https://github.com/manconsultingltd/pos-api-printer-service/releases">Download</a></div></header>
+<a class="btn sm" href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener noreferrer">Download</a></div></header>
 
 <main id="top">
 <div class="w hero">
 <div>
 <h1>Print POS receipts in under a second.</h1>
 <p>A free service for POSAwesome that sends receipts straight to your thermal printer as ESC/POS commands. No print dialog, no waiting at the counter, and if it's ever unavailable the browser print dialog takes over.</p>
-<div class="cta"><a class="btn" href="https://github.com/manconsultingltd/pos-api-printer-service/releases">Download the installer</a><a class="btn o" href="https://github.com/manconsultingltd/pos-api-printer-service">View on GitHub</a></div>
+<div class="cta"><a class="btn" href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener noreferrer">Download the installer</a><a class="btn o" href="https://github.com/manconsultingltd/pos-api-printer-service" target="_blank" rel="noopener noreferrer">View on GitHub</a></div>
 <p class="fine">Open source (MIT). For Linux and Windows. Works with 58 mm and 80 mm paper.</p>
 </div>
 <div aria-label="Example of a printed receipt">
@@ -230,14 +230,14 @@ figure{margin:0}figure img{display:block;width:100%;height:auto;border:1px solid
 </div>
 </div>
 
-<section id="speed"><div class="w">
-<h2>The print dialog is the slow part.</h2>
-<p class="lede">The browser renders the page, opens a dialog, and waits for you. This service skips all of that and sends the receipt to the printer in the format it already understands.</p>
-<div class="bars">
-<div class="bar s"><span>Browser print dialog<em>the usual way</em></span><i></i></div>
-<div class="bar f"><span>API Printer Service<em>about 0.5 to 1 second</em></span><i></i></div>
+<section id="app"><div class="w">
+<h2>A control panel on the counter.</h2>
+<p class="lede">On Windows the service comes with a small desktop app and a tray icon, so whoever sets up the counter never needs a terminal.</p>
+<div class="show">
+<div><div class="tabs" role="tablist" aria-label="App views"><button class="tb" type="button" role="tab" id="t1" aria-selected="true" aria-controls="p1"><b>Main window</b><span>Service status, printers, paper width, updates and a live log.</span></button><button class="tb" type="button" role="tab" id="t2" aria-selected="false" aria-controls="p2"><b>Update prompt</b><span>Asks before installing, then restarts the service into the new version.</span></button><button class="tb" type="button" role="tab" id="t3" aria-selected="false" aria-controls="p3"><b>Tray icon</b><span>The common actions one click away, without opening the window.</span></button></div>
+<p class="alsot">Everything in the app</p><div class="chips"><span class="chip">Start, stop, restart</span><span class="chip">Default printer</span><span class="chip">58 / 80 mm</span><span class="chip">Test page</span><span class="chip">Stable or preview updates</span><span class="chip">Live log</span></div></div>
+<div class="stage"><figure class="pn on" id="p1" role="tabpanel" aria-labelledby="t1"><img src="assets/main-window.webp" alt="API Printer Service window showing the running service, a list of printers with a default marked, paper width, updates and a log"></figure><figure class="pn" id="p2" role="tabpanel" aria-labelledby="t2"><img src="assets/update-prompt.webp" alt="Dialog announcing that version 1.1.24 is available and asking to install it"></figure><figure class="pn" id="p3" role="tabpanel" aria-labelledby="t3"><img src="assets/tray-menu.webp" alt="Tray menu with open window, select printer, print test page, check for updates and service controls"></figure></div>
 </div>
-<p class="fine">Bars show relative time only. 4 to 10 times faster, based on MAN Consulting's own measurements.</p>
 </div></section>
 
 <section id="who"><div class="w">
@@ -316,15 +316,6 @@ figure{margin:0}figure img{display:block;width:100%;height:auto;border:1px solid
 </div>
 </div></section>
 
-<section id="app"><div class="w">
-<h2>A control panel on the counter.</h2>
-<p class="lede">On Windows the service comes with a small desktop app and a tray icon, so whoever sets up the counter never needs a terminal.</p>
-<div class="show">
-<div><div class="tabs" role="tablist" aria-label="App views"><button class="tb" type="button" role="tab" id="t1" aria-selected="true" aria-controls="p1"><b>Main window</b><span>Service status, printers, paper width, updates and a live log.</span></button><button class="tb" type="button" role="tab" id="t2" aria-selected="false" aria-controls="p2"><b>Update prompt</b><span>Asks before installing, then restarts the service into the new version.</span></button><button class="tb" type="button" role="tab" id="t3" aria-selected="false" aria-controls="p3"><b>Tray icon</b><span>The common actions one click away, without opening the window.</span></button></div>
-<p class="alsot">Everything in the app</p><div class="chips"><span class="chip">Start, stop, restart</span><span class="chip">Default printer</span><span class="chip">58 / 80 mm</span><span class="chip">Test page</span><span class="chip">Stable or preview updates</span><span class="chip">Live log</span></div></div>
-<div class="stage"><figure class="pn on" id="p1" role="tabpanel" aria-labelledby="t1"><img src="assets/main-window.webp" alt="API Printer Service window showing the running service, a list of printers with a default marked, paper width, updates and a log"></figure><figure class="pn" id="p2" role="tabpanel" aria-labelledby="t2"><img src="assets/update-prompt.webp" alt="Dialog announcing that version 1.1.24 is available and asking to install it"></figure><figure class="pn" id="p3" role="tabpanel" aria-labelledby="t3"><img src="assets/tray-menu.webp" alt="Tray menu with open window, select printer, print test page, check for updates and service controls"></figure></div>
-</div>
-</div></section>
 
 <section id="modes"><div class="w">
 <h2>Two print modes. You design the receipt.</h2>
@@ -367,8 +358,8 @@ curl http://localhost:5058/api/printers
 <p class="lede">Prebuilt, self-contained installers from CI, or run from source if you prefer.</p>
 <div class="ins">
 <ol class="steps">
-<li><strong>Download the installer</strong>Grab the <code>.run</code> (Linux) or <code>.exe</code> (Windows) from the <a href="https://github.com/manconsultingltd/pos-api-printer-service/releases">GitHub Releases</a> page. Fully self-contained, no Python on the target machine.</li>
-<li><strong>Create the Print Format</strong>Sales Invoice, Custom Format on. Start the HTML with the API-print marker <code>&lt;!--API_PRINT_ESC_POS_THERMAL_80MM--&gt;</code> (or <code>58MM</code> for narrow paper), then paste the <a href="https://github.com/manconsultingltd/pos-api-printer-service/blob/main/api-printer-service/print_format_literal_80mm.html">literal 80mm example</a>.</li>
+<li><strong>Download the installer</strong>Grab the <code>.run</code> (Linux) or <code>.exe</code> (Windows) from the <a href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a> page. Fully self-contained, no Python on the target machine.</li>
+<li><strong>Create the Print Format</strong>Sales Invoice, Custom Format on. Start the HTML with the API-print marker <code>&lt;!--API_PRINT_ESC_POS_THERMAL_80MM--&gt;</code> (or <code>58MM</code> for narrow paper), then paste the <a href="https://github.com/manconsultingltd/pos-api-printer-service/blob/main/api-printer-service/print_format_literal_80mm.html" target="_blank" rel="noopener noreferrer">literal 80mm example</a>.</li>
 <li><strong>Set it on the POS Profile</strong>Assign the Print Format to your POS Profile. POSAwesome sees the marker and routes receipts to <code>localhost:5058</code>.</li>
 <li><strong>Open the control panel</strong>Visit <code>http://localhost:5058/</code> to pick your default printer, review the log and fire a test print. On Windows you can also use the tray icon.</li>
 </ol>
@@ -394,12 +385,12 @@ python main.py   # serves on 127.0.0.1:5058</pre></div>
 <section class="final"><div class="w"><div class="fc">
 <h2>Stop waiting for the print dialog.</h2>
 <p class="lede">Free, open source, and installed on the counter in minutes. Want it set up for you? MAN Consulting can install it and design print formats for your country's fiscal rules.</p>
-<div class="fb2"><a class="btn lg" href="https://github.com/manconsultingltd/pos-api-printer-service/releases">Download the latest release</a><a class="btn o lg" href="https://manconsulting.co.uk">Talk to MAN Consulting</a></div>
+<div class="fb2"><a class="btn lg" href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener noreferrer">Download the latest release</a><a class="btn o lg" href="https://manconsulting.co.uk" target="_blank" rel="noopener noreferrer">Talk to MAN Consulting</a></div>
 </div></div></section>
 </main>
 
-<footer><div class="w"><span>© 2026 <a href="https://manconsulting.co.uk">MAN Consulting Ltd</a> · MIT License</span>
-<span><a href="https://github.com/manconsultingltd/pos-api-printer-service">GitHub</a> · <a href="https://github.com/manconsultingltd/pos-api-printer-service/releases">Releases</a> · <a href="https://github.com/manconsultingltd/pos-api-printer-service/issues">Issues</a></span></div></footer>
+<footer><div class="w"><span>© 2026 <a href="https://manconsulting.co.uk" target="_blank" rel="noopener noreferrer">MAN Consulting Ltd</a> · MIT License</span>
+<span><a href="https://github.com/manconsultingltd/pos-api-printer-service" target="_blank" rel="noopener noreferrer">GitHub</a> · <a href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener noreferrer">Releases</a> · <a href="https://github.com/manconsultingltd/pos-api-printer-service/issues" target="_blank" rel="noopener noreferrer">Issues</a></span></div></footer>
 <script>function fb(t,ok){try{var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();document.execCommand("copy");a.remove();ok()}catch(e){}}
 document.querySelectorAll(".cp").forEach(function(b){b.addEventListener("click",function(){var t=b.closest(".cc").querySelector("pre").innerText;var ok=function(){b.textContent="Copied";setTimeout(function(){b.textContent="Copy"},1600)};try{navigator.clipboard.writeText(t).then(ok,function(){fb(t,ok)})}catch(e){fb(t,ok)}})});</script>
 <script>document.querySelectorAll(".tb").forEach(function(t){t.addEventListener("click",function(){document.querySelectorAll(".tb").forEach(function(x){x.setAttribute("aria-selected",x===t)});document.querySelectorAll(".pn").forEach(function(p){p.classList.toggle("on",p.id===t.getAttribute("aria-controls"))})})});</script>
