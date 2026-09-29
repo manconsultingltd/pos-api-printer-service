@@ -250,7 +250,25 @@ class Updater:
 
         self._publish({"status": "installing", "progress_percent": 100})
         logger.info("Launching silent installer %s — the service will be stopped by it", path)
-        proc = self._launch_installer(path)
+        try:
+            proc = self._launch_installer(path)
+        except OSError as e:
+            # A downloaded exe Windows refuses to execute (corrupt download,
+            # AV quarantine, wrong arch) used to escape as an unhandled
+            # OSError — the endpoint answered a bare text/plain 500 that the
+            # GUI rendered as the useless 'HTTP Error 500'. Any launch
+            # failure must be an UpdateError so the caller gets a real
+            # message and can retry.
+            logger.warning("Could not launch installer %s: %s", path, e)
+            self._publish({
+                "status": "available",
+                "progress_percent": None,
+                "error": f"could not launch the installer: {e}",
+            })
+            raise UpdateError(
+                f"could not launch the downloaded installer: {e} "
+                "(antivirus may have quarantined it) — try again"
+            ) from e
         # The installer normally ends this process (it stops the service
         # first), and the watchdog thread dies with it — that is fine. The
         # watchdog only matters when the installer FAILS or HANGS BEFORE
