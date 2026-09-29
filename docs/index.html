@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>API Printer Service — Print POS receipts in under a second</title>
-<meta name="description" content="Free, open-source service that prints POSAwesome receipts on thermal printers in about 0.5–1 second, 4–10× faster than the browser print dialog.">
+<meta name="description" content="Free, open-source service that prints Your POS receipts on thermal printers in about 0.5–1 second, 4–10× faster than the browser print dialog.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="canonical" href="https://manconsultingltd.github.io/pos-api-printer-service/">
 <meta property="og:title" content="API Printer Service — Print POS receipts in under a second">
-<meta property="og:description" content="Free, open-source service that prints POSAwesome receipts on thermal printers in about 0.5–1 second, 4–10× faster than the browser print dialog.">
+<meta property="og:description" content="Free, open-source service that prints Your POS receipts on thermal printers in about 0.5–1 second, 4–10× faster than the browser print dialog.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://manconsultingltd.github.io/pos-api-printer-service/">
 <meta property="og:image" content="https://manconsultingltd.github.io/pos-api-printer-service/assets/og-image.png">
@@ -16,7 +16,7 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="API Printer Service — Print POS receipts in under a second">
-<meta name="twitter:description" content="Free, open-source service that prints POSAwesome receipts on thermal printers in about 0.5–1 second, 4–10× faster than the browser print dialog.">
+<meta name="twitter:description" content="Free, open-source service that prints Your POS receipts on thermal printers in about 0.5–1 second, 4–10× faster than the browser print dialog.">
 <meta name="twitter:image" content="https://manconsultingltd.github.io/pos-api-printer-service/assets/og-image.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -202,7 +202,7 @@ figure{margin:0}figure img{display:block;width:100%;height:auto;border:1px solid
 <div class="w hero">
 <div>
 <h1>Print POS receipts in under a second.</h1>
-<p>A free service for POSAwesome that sends receipts straight to your thermal printer as ESC/POS commands. No print dialog, no waiting at the counter, and if it's ever unavailable the browser print dialog takes over.</p>
+<p>A free service for Your POS that sends receipts straight to your thermal printer as ESC/POS commands. No print dialog, no waiting at the counter, and if it's ever unavailable the browser print dialog takes over.</p>
 <div class="cta"><a class="btn" href="https://github.com/manconsultingltd/pos-api-printer-service/releases/latest" target="_blank" rel="noopener noreferrer">Download the installer</a><a class="btn o" href="https://github.com/manconsultingltd/pos-api-printer-service" target="_blank" rel="noopener noreferrer">View on GitHub</a></div>
 <p class="fine">Open source (MIT). For Linux and Windows. Works with 58 mm and 80 mm paper.</p>
 </div>
@@ -271,15 +271,15 @@ figure{margin:0}figure img{display:block;width:100%;height:auto;border:1px solid
 
 <section id="how"><div class="w">
 <h2>From your print format to paper, in one hop.</h2>
-<p class="lede">POSAwesome already renders your receipt as HTML. The service reads that HTML and prints it.</p>
+<p class="lede">Your POS already renders your receipt as HTML. The service reads that HTML and prints it.</p>
 <div class="fl">
-<div class="n a"><b>POSAwesome</b><span>Browser POS</span></div>
+<div class="n a"><b>Your POS</b><span>Browser POS</span></div>
 <div class="n a"><b>PrinterApi.js</b><span><code>POST /api/print-html</code></span></div>
 <div class="n a hl"><b>API Printer Service</b><span><code>localhost:5058</code><br>HTML to ESC/POS</span></div>
 <div class="n a"><b>CUPS / Spooler</b><span>OS print queue</span></div>
 <div class="n"><b>Thermal printer</b><span>58 mm or 80 mm paper</span></div>
 <div class="n dn"><b>Browser print dialog</b><span>Fallback</span></div>
-<p class="fbt">If the service is down or returns an error, POSAwesome opens the browser print dialog instead, so a sale is never blocked.</p>
+<p class="fbt">If the service is down or returns an error, Your POS opens the browser print dialog instead, so a sale is never blocked.</p>
 </div>
 <div class="term"><div class="th"><i></i><i></i><i></i><span>POS receipt to thermal printer</span></div><pre><span class="m">$</span> curl -X POST localhost:5058/api/print-html \
     -d '{"printer":"ThermalPrinter",
@@ -332,7 +332,7 @@ figure{margin:0}figure img{display:block;width:100%;height:auto;border:1px solid
 
 <section id="api"><div class="w">
 <h2>A REST API you can call from anywhere.</h2>
-<p class="lede">JSON in and out. POSAwesome ships the client, but anything that can send an HTTP request can print.</p>
+<p class="lede">JSON in and out. Your POS ships the client, but anything that can send an HTTP request can print.</p>
 <div class="codes">
 <div class="cc"><div class="ch"><span>POST /api/print-html</span><button class="cp" type="button">Copy</button></div><pre>curl -X POST http://localhost:5058/api/print-html \
   -H "Content-Type: application/json" \
@@ -355,7 +355,7 @@ curl http://localhost:5058/api/printers
 <ol class="steps">
 <li><strong>Download the installer</strong>Grab the <code>.run</code> (Linux) or <code>.exe</code> (Windows) from the <a href="https://github.com/manconsultingltd/pos-api-printer-service/releases/latest" target="_blank" rel="noopener noreferrer">GitHub Releases</a> page. Fully self-contained, no Python on the target machine.</li>
 <li><strong>Create the Print Format</strong>Sales Invoice, Custom Format on. Start the HTML with the API-print marker <code>&lt;!--API_PRINT_ESC_POS_THERMAL_80MM--&gt;</code> (or <code>58MM</code> for narrow paper), then paste the <a href="https://github.com/manconsultingltd/pos-api-printer-service/blob/main/api-printer-service/print_format_literal_80mm.html" target="_blank" rel="noopener noreferrer">literal 80mm example</a>.</li>
-<li><strong>Set it on the POS Profile</strong>Assign the Print Format to your POS Profile. POSAwesome sees the marker and routes receipts to <code>localhost:5058</code>.</li>
+<li><strong>Set it on the POS Profile</strong>Assign the Print Format to your POS Profile. Your POS sees the marker and routes receipts to <code>localhost:5058</code>.</li>
 <li><strong>Open the control panel</strong>Visit <code>http://localhost:5058/</code> to pick your default printer, review the log and fire a test print. On Windows you can also use the tray icon.</li>
 </ol>
 <div>
