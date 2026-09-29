@@ -107,13 +107,48 @@ class Updater:
             "asset_name": None,
             "progress_percent": None,
             "error": None,
+            # Verbose update diagnostics (only populated when the debug
+            # flag is on): the UI surfaces this list line by line.
+            "debug_log": [],
+            "download_url": None,
+            "download_bytes": None,
         }
 
     # ── state plumbing ────────────────────────────────────────────────────
 
     def state(self) -> Dict[str, Any]:
         with self._mutex:
-            return dict(self._state)
+            out = dict(self._state)
+        out["debug"] = self.debug_enabled()
+        return out
+
+    # ── debug/verbose plumbing ───────────────────────────────────────────
+
+    DEBUG_LOG_MAX = 100
+
+    def debug_enabled(self) -> bool:
+        return bool(read_update_settings(self.settings_file)["debug"])
+
+    def set_debug(self, enabled: Any) -> Dict[str, Any]:
+        """Persist the verbose-download flag. Anything truthy turns it on."""
+        settings = read_update_settings(self.settings_file)
+        write_update_settings(
+            self.settings_file,
+            {
+                "channel": settings["channel"],
+                "debug": bool(enabled),
+                "last_checked_at": settings["last_checked_at"],
+            },
+        )
+        return self.state()
+
+    def _dbg(self, message: str) -> None:
+        """Append one verbose line to state (capped) AND the service log.
+        Cheap when debug is off: still logged, just not shown in the UI."""
+        logger.info("[update-debug] %s", message)
+        with self._mutex:
+            log = list(self._state["debug_log"]) + [message]
+            self._state["debug_log"] = log[-self.DEBUG_LOG_MAX:]
 
     def _publish(self, patch: Dict[str, Any]) -> None:
         with self._mutex:
@@ -239,6 +274,11 @@ class Updater:
             "Downloading update %s (%s) from %s",
             st["available_version"], st["asset_name"], st["release_url"],
         )
+        if self.debug_enabled():
+            self._dbg(
+                f"install: version={st['available_version']} "
+                f"asset={st['asset_name']} release_page={st['release_url']}"
+            )
         try:
             path = self._download_asset(st)
         except Exception as e:  # noqa: BLE001
@@ -282,8 +322,18 @@ class Updater:
     def _download_asset(self, st: Dict[str, Any]) -> str:
         """Stream the installer asset to a temp file. The URL is derived from
         the release page URL we validated, NOT from asset JSON: the API's
-        browser_download_url is untrusted and could point anywhere."""
+        browser_download_url is untrusted and could point anywhere.
+
+        When the debug flag is on, every hop of the download (derived URL,
+        redirect target, response size, progress) is published into the
+        state's debug_log so the control panel can show WHERE the bytes
+        actually come from."""
         import re as _re
+
+        debug = self.debug_enabled()
+        if debug:
+            self._dbg("resetting debug log for a new download attempt")
+            self._publish({"debug_log": []})
 
         m = _re.match(
             r"^https://github\.com/%s/releases/tag/v(.+)$" % _re.escape(REPO_SLUG),
@@ -296,24 +346,41 @@ class Updater:
             f"https://github.com/{REPO_SLUG}/releases/download/"
             f"v{version}/{st['asset_name']}"
         )
+        if debug:
+            self._dbg(f"GET {url}")
         req = urllib.request.Request(
             url,
             headers={"User-Agent": f"api-printer-service/{self.current_version}"},
         )
         fd, path = tempfile.mkstemp(prefix="api-printer-update-", suffix=".exe")
+        if debug:
+            self._dbg(f"temp file: {path}")
+        total = 0
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp, os.fdopen(fd, "wb") as f:
-                if resp.status != 200:
-                    raise UpdateError(f"download returned {resp.status}")
-                total = 0
+            with urllib.request.urlopen(req, timeout=60) as resp, \
+                    os.fdopen(fd, "wb") as f:
+                if debug:
+                    self._dbg(f"HTTP {resp.status} — final URL: {resp.geturl()}")
+                    for h in ("Content-Length", "Content-Type", "Location"):
+                        v = resp.headers.get(h)
+                        if v:
+                            self._dbg(f"{h}: {v}")
+                if debug:
+                    self._publish({"download_url": url})
                 while True:
                     chunk = resp.read(DOWNLOAD_CHUNK)
                     if not chunk:
                         break
                     f.write(chunk)
                     total += len(chunk)
+                    if debug:
+                        self._publish({"download_bytes": total})
+            if debug:
+                self._dbg(f"downloaded {total} bytes to {path}")
             return path
-        except Exception:
+        except Exception as e:
+            if debug:
+                self._dbg(f"download FAILED after {total} bytes: {e}")
             try:
                 os.unlink(path)
             except OSError:

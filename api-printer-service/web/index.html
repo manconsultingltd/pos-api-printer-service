@@ -221,6 +221,7 @@
         </select>
         <button id="btn-upd-check" class="primary">Check now</button>
         <button id="btn-upd-install" disabled>Install update</button>
+        <label style="font-size:12px"><input type="checkbox" id="upd-debug"> Debug</label>
         <a id="upd-link" href="#" target="_blank" rel="noreferrer" style="display:none">Release notes ↗</a>
       </div>
       <div id="upd-note" class="muted" style="margin-top:8px;font-size:12px"></div>
@@ -461,6 +462,16 @@
     }
     $("upd-version").textContent = "v" + s.current_version;
     $("upd-channel").value = s.channel || "stable";
+    // Debug state sync + verbose lines → log box. New lines only: the
+    // status is polled every few seconds and re-rendering the whole list
+    // would spam the log.
+    const dbgLog = s.debug_log || [];
+    if (window._updDebugShown === undefined) window._updDebugShown = 0;
+    if (dbgLog.length < window._updDebugShown) window._updDebugShown = 0;
+    for (let i = window._updDebugShown; i < dbgLog.length; i++) {
+      log("[upd] " + dbgLog[i]);
+    }
+    window._updDebugShown = dbgLog.length;
     $("btn-upd-install").disabled = !(s.capability === "auto" && s.status === "available");
     const link = $("upd-link");
     if (s.release_url && s.capability !== "auto") {
@@ -477,6 +488,15 @@
     try { renderUpdate(await api("GET", "/api/update/status")); }
     catch (_) { $("upd-label").textContent = "Unavailable"; }
   }
+
+  $("upd-debug").addEventListener("change", async () => {
+    try {
+      const s = await api("POST", "/api/update/set-debug", { debug: $("upd-debug").checked });
+      window._updDebugShown = 0; // debug toggle resets the published log
+      renderUpdate(s);
+      log("Update debug " + (s.debug ? "enabled — downloads will be logged in detail." : "disabled."), "ok");
+    } catch (e) { log("✗ Debug toggle failed: " + e.message, "fail"); }
+  });
 
   $("upd-channel").addEventListener("change", async () => {
     try {

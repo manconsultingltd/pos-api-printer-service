@@ -175,6 +175,11 @@ class UpdateChannelModel(BaseModel):
     channel: str
 
 
+class UpdateDebugModel(BaseModel):
+    """Toggle verbose update-download diagnostics."""
+    debug: bool
+
+
 @app.get("/api/update/status")
 async def update_status() -> Dict[str, Any]:
     """Current self-update state (idle / checking / available / error, ...)."""
@@ -205,6 +210,16 @@ def update_set_channel(body: UpdateChannelModel) -> Dict[str, Any]:
     if not is_update_channel(body.channel):
         raise HTTPException(status_code=400, detail="Invalid channel")
     return u.set_channel(body.channel)
+
+
+@app.post("/api/update/set-debug")
+def update_set_debug(body: UpdateDebugModel) -> Dict[str, Any]:
+    """Verbose mode: the updater logs (and publishes to /api/update/status)
+    exactly what it downloads, from which URL, sizes and progress."""
+    u = get_updater()
+    if updater_missing(u):
+        raise HTTPException(status_code=503, detail="Updater not initialized")
+    return u.set_debug(body.debug)
 
 
 @app.post("/api/update/install")
