@@ -1,0 +1,60 @@
+name: ✨ Feature Request
+description: Suggest an idea or an improvement for the printer service.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Receipts are country- and fiscal-specific — when describing your idea,
+        the **why** (your POS / fiscal context) matters as much as the **what**.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Printing / receipt output (ESC/POS)
+        - Literal-mode print format
+        - Modeled-mode parsing
+        - HTTP API / endpoints
+        - Control panel (localhost:5058)
+        - Installers / deployment
+        - Self-update
+        - Documentation / landing page
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or context
+      description: What are you trying to achieve? What's missing or painful today?
+      placeholder: "e.g. In country X fiscal receipts must carry a QR code at the bottom…"
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to happen? Include sample receipt HTML if relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried or other approaches you've ruled out.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues and Discussions for similar ideas
+          required: true
+        - label: I'm willing to help test a prototype if one is made
+          required: false
