@@ -166,6 +166,19 @@ Section "${APP_NAME}" SecMain
     DetailPrint "Stopping any existing ${APP_NAME} task..."
     nsExec::ExecToLog 'schtasks /End /TN "${TASK_NAME}"'
     Pop $0
+
+    ; schtasks /End only stops the task's process. A hand-started instance
+    ; (console, pythonw, non-task scheduler entry) survives it, keeps port
+    ; 5058 bound, and the freshly installed service then dies on startup
+    ; with "address already in use" — the OLD version keeps serving from
+    ; memory while the update claims success. Kill any listener on 5058 so
+    ; the task restart below actually owns the port.
+    ; NSIS note: $$ emits a literal '$' — bare $c/$x would be parsed as
+    ; NSIS variables and fail the compile with "unknown variable".
+    DetailPrint "Freeing port 5058 from any non-task instance..."
+    nsExec::ExecToLog \
+        'powershell.exe -NoProfile -NonInteractive -Command "& { $$c = Get-NetTCPConnection -LocalPort 5058 -State Listen -ErrorAction SilentlyContinue; foreach ($$x in $$c) { Stop-Process -Id $$x.OwningProcess -Force -ErrorAction SilentlyContinue } }"'
+    Pop $0
     ; Give the OS a moment to release the file handles
     nsExec::ExecToLog 'cmd /c "timeout /t 3 /nobreak >nul"'
     Pop $0
