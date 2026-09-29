@@ -19,6 +19,8 @@ Unicode True
 !include "MUI2.nsh"
 !include "WinVer.nsh"
 !include "x64.nsh"
+!include "LogicLib.nsh"
+!include "FileFunc.nsh"
 
 ; Solid LZMA compression — default NSIS (zlib, per-file) yields a ~180 MB
 ; installer here; solid LZMA brings it down substantially by exploiting
@@ -47,7 +49,31 @@ RequestExecutionLevel admin
 InstallDir         "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey   HKLM "${APP_REGKEY}" "InstallDir"
 
-; ── MUI pages ─────────────────────────────────────────────────────────────────
+; ── Install log ───────────────────────────────────────────────────────────────
+; A silent self-update that fails used to vanish without a trace. Every
+; meaningful step and every failure now lands in
+; %ProgramData%\api-printer-service\install-log.txt (next to api-printer.log
+; and startup-err.log), so a stuck update can always be diagnosed after the
+; fact. Append-mode, written from both the installer and the uninstaller.
+!define INSTALL_LOG_DIR "$COMMONPROGRAMDATA\api-printer-service"
+!macro WriteInstallLogImpl MSG
+  CreateDirectory "${INSTALL_LOG_DIR}"
+  ; Runtime timestamp (${__TIMESTAMP__} is compile time — useless here).
+  ${GetTime} "" "L" $1 $2 $3 $4 $5 $6 $7
+  FileOpen $0 "${INSTALL_LOG_DIR}\install-log.txt" a
+  FileWrite $0 "$3-$2-$1 $5:$6:$7 [${MSG}]$\r$\n"
+  FileClose $0
+!macroend
+
+; Wrapped so an unexpected abort still leaves a line in the log.
+!macro WriteInstallLog MSG
+  Push $0
+  !insertmacro WriteInstallLogImpl "${MSG}"
+  Pop $0
+!macroend
+!define WriteInstallLog "!insertmacro WriteInstallLog"
+
+; ── MUI pages ───────────────────────────────────────────────────────────────────
 !define MUI_ABORTWARNING
 
 !define MUI_WELCOMEPAGE_TITLE "Welcome to ${APP_NAME} ${APP_VERSION} Setup"
@@ -91,23 +117,35 @@ InstallDirRegKey   HKLM "${APP_REGKEY}" "InstallDir"
 
 !insertmacro MUI_LANGUAGE "English"
 
-; ── Pre-install compatibility checks ──────────────────────────────────────────
+; ── Pre-install compatibility checks ───────────────────────────────────────
 Function .onInit
+
+    ; Self-update installs run with /S (no UI). Without an explicit default
+    ; every MessageBox below BLOCKS the silent install waiting for a click
+    ; nobody can ever make: the service was already stopped, so printing is
+    ; down and the updater sits 'installing' forever. /SD <btn> picks that
+    ; button automatically when silent — the installer then writes WHY it
+    ; refused into install-log.txt and exits nonzero, which the updater
+    ; surfaces as a retryable error instead of a hang.
 
     ; 64-bit Windows required — the bundled Python build is x86_64
     ${IfNot} ${RunningX64}
+        ${WriteInstallLog} "64-bit Windows is required; a 32-bit OS was detected."
         MessageBox MB_ICONSTOP|MB_OK \
             "${APP_NAME} requires 64-bit Windows.$\r$\n$\r$\n\
-            Detected a 32-bit OS. Installation cannot continue."
+            Detected a 32-bit OS. Installation cannot continue." /SD IDOK
+        SetErrorLevel 1
         Abort
     ${EndIf}
 
     ; Windows 10 or later. Earlier versions lack curl and modern schtasks
     ; flags used by the helper scripts.
     ${IfNot} ${AtLeastWin10}
+        ${WriteInstallLog} "Windows 10 or later is required."
         MessageBox MB_ICONSTOP|MB_OK \
             "${APP_NAME} requires Windows 10 or later.$\r$\n$\r$\n\
-            Please upgrade your operating system and try again."
+            Please upgrade your operating system and try again." /SD IDOK
+        SetErrorLevel 1
         Abort
     ${EndIf}
 
@@ -115,6 +153,12 @@ FunctionEnd
 
 ; ── Install section ───────────────────────────────────────────────────────────
 Section "${APP_NAME}" SecMain
+
+    ${If} ${Silent}
+        ${WriteInstallLog} "--- install v${APP_VERSION} start (silent) ---"
+    ${Else}
+        ${WriteInstallLog} "--- install v${APP_VERSION} start (interactive) ---"
+    ${EndIf}
 
     ; ── Stop any previously-installed instance BEFORE copying new files ──────
     ; Needed because python.dll and friends are locked while the service runs,
@@ -163,8 +207,14 @@ Section "${APP_NAME}" SecMain
          -File "$INSTDIR\prepare_python.ps1" -InstallDir "$INSTDIR"'
     Pop $0
     ${If} $0 != 0
-        MessageBox MB_ICONEXCLAMATION \
-            "Python setup returned exit code $0.$\nCheck the install log."
+        ${WriteInstallLog} "prepare_python.ps1 failed (exit $0)."
+        MessageBox MB_ICONEXCLAMATION|MB_OK \
+            "Python setup returned exit code $0.$\nCheck the install log." /SD IDOK
+        ${If} ${Silent}
+            ${WriteInstallLog} "install aborted: Python setup failed (silent)."
+            SetErrorLevel 2
+            Abort
+        ${EndIf}
     ${EndIf}
 
     ; ── Register Windows Scheduled Task (auto-start as SYSTEM) ───────────────
@@ -183,12 +233,18 @@ Section "${APP_NAME}" SecMain
     ; uninstaller exists for cleanup) but the user gets an actionable
     ; message instead of a silently-broken system.
     ${If} $0 != 0
+        ${WriteInstallLog} "register_service.ps1 failed (exit $0) — service will not auto-start."
         MessageBox MB_ICONSTOP|MB_OK \
             "Service registration failed (exit code $0).$\r$\n$\r$\n\
             The scheduled task was not created, so the API Printer \
             Service will NOT start automatically at boot.$\r$\n$\r$\n\
             Re-run this installer as Administrator. If the problem \
-            persists, check the install log shown above for details."
+            persists, check the install log shown above for details." /SD IDOK
+        ${If} ${Silent}
+            ${WriteInstallLog} "install aborted: service registration failed (silent)."
+            SetErrorLevel 3
+            Abort
+        ${EndIf}
     ${EndIf}
 
     ; ── Helper batch files for the Start/Stop shortcuts ──────────────────────
@@ -284,10 +340,14 @@ Section "${APP_NAME}" SecMain
 
     WriteUninstaller "$INSTDIR\Uninstall.exe"
 
+    ${WriteInstallLog} "--- install v${APP_VERSION} finished OK ---"
+
 SectionEnd
 
 ; ── Uninstall section ─────────────────────────────────────────────────────────
 Section "Uninstall"
+
+    ${WriteInstallLog} "--- uninstall v${APP_VERSION} ---"
 
     nsExec::ExecToLog \
         'powershell.exe -ExecutionPolicy Bypass -NonInteractive \

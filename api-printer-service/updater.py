@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import tempfile
 import threading
 import time
@@ -52,6 +53,13 @@ FIRST_CHECK_DELAY_S = 60
 TIMER_TICK_S = 60 * 60
 
 DOWNLOAD_CHUNK = 256 * 1024
+
+# How long the launched NSIS installer may run before we give up watching
+# it. A silent install extracts a ~180 MB bundle; minutes are normal — a
+# quarter of an hour is not. When the cap fires the state leaves the
+# terminal 'installing' status, so the UI can never be stuck on
+# "Installing…" forever (the #1 reported update failure mode).
+INSTALLER_TIMEOUT_S = 15 * 60
 
 
 class UpdateError(Exception):
@@ -227,6 +235,10 @@ class Updater:
             raise UpdateError("release URL failed validation")
 
         self._publish({"status": "downloading", "progress_percent": 0, "error": None})
+        logger.info(
+            "Downloading update %s (%s) from %s",
+            st["available_version"], st["asset_name"], st["release_url"],
+        )
         try:
             path = self._download_asset(st)
         except Exception as e:  # noqa: BLE001
@@ -237,7 +249,16 @@ class Updater:
             raise UpdateError(f"download failed: {e}") from e
 
         self._publish({"status": "installing", "progress_percent": 100})
-        self._launch_installer(path)
+        logger.info("Launching silent installer %s — the service will be stopped by it", path)
+        proc = self._launch_installer(path)
+        # The installer normally ends this process (it stops the service
+        # first), and the watchdog thread dies with it — that is fine. The
+        # watchdog only matters when the installer FAILS or HANGS BEFORE
+        # stopping the service: then someone must move the state out of
+        # 'installing', or the UI is stuck on it forever.
+        threading.Thread(
+            target=self._watch_installer, args=(proc,), daemon=True
+        ).start()
         return self.state()
 
     def _download_asset(self, st: Dict[str, Any]) -> str:
@@ -281,8 +302,7 @@ class Updater:
                 pass
             raise
 
-    def _launch_installer(self, path: str) -> None:
-        import subprocess
+    def _launch_installer(self, path: str) -> "subprocess.Popen":
         import sys
 
         # /S = silent NSIS install. DETACHED + breakaway so the installer
@@ -290,7 +310,7 @@ class Updater:
         flags = 0
         if sys.platform == "win32":
             flags = 0x00000008 | 0x00000200 | 0x01000000  # DETACHED|NEW_GROUP|BREAKAWAY
-        subprocess.Popen(
+        return subprocess.Popen(
             [path, "/S"],
             close_fds=True,
             stdin=subprocess.DEVNULL,
@@ -298,6 +318,52 @@ class Updater:
             stderr=subprocess.DEVNULL,
             creationflags=flags,
         )
+
+    def _watch_installer(self, proc: "subprocess.Popen") -> None:
+        """Wait for the silent installer and publish the outcome.
+
+        'installing' must never be a terminal state: a failed installer
+        (file locked, admin policy, NSIS error) previously left the state
+        there indefinitely with the old version still running and no error
+        anywhere. Now: failure → back to 'available' with the exit code so
+        the user can retry; hang → 'error' after the timeout; success →
+        'ready' (usually moot, since a successful installer has already
+        stopped this service by then)."""
+        try:
+            code = proc.wait(timeout=INSTALLER_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "Update installer still running after %s min — publishing "
+                "timeout error", INSTALLER_TIMEOUT_S // 60,
+            )
+            self._publish({
+                "status": "error",
+                "progress_percent": None,
+                "error": (
+                    f"the installer did not finish within "
+                    f"{INSTALLER_TIMEOUT_S // 60} minutes — it may be hung; "
+                    "check the install log and try again"
+                ),
+            })
+            return
+        if code == 0:
+            logger.info("Update installer finished (exit 0)")
+            self._publish({
+                "status": "ready",
+                "progress_percent": 100,
+                "error": None,
+            })
+            return
+        logger.warning("Update installer exited with code %s", code)
+        self._publish({
+            "status": "available",
+            "progress_percent": None,
+            "error": (
+                f"the installer exited with code {code} and the update was "
+                "not applied — the previous version is still running; "
+                "press Install update to retry"
+            ),
+        })
 
     # ── channel ───────────────────────────────────────────────────────────
 
