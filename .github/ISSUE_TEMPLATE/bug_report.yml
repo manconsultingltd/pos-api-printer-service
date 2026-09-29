@@ -1,0 +1,109 @@
+name: 🐞 Bug Report
+description: Something doesn't work — a receipt prints wrong, the service errors, or an installer fails.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill in the details below —
+        the service version and the service log are the two things that speed up
+        diagnosis the most.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Printing / receipt output (ESC/POS)
+        - Literal-mode print format
+        - Modeled-mode parsing
+        - HTTP API / endpoints
+        - Control panel (localhost:5058)
+        - Installer / service registration
+        - Self-update
+        - Cash drawer
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Service version
+      description: From `curl http://localhost:5058/health` or the control panel.
+      placeholder: "e.g. 1.4.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - Linux
+        - macOS
+    validations:
+      required: true
+
+  - type: dropdown
+    id: paper
+    attributes:
+      label: Paper width
+      options:
+        - "58mm"
+        - "80mm"
+        - Other / not sure
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect to happen instead?
+      placeholder: A clear description of the bug, including what the receipt should have looked like.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open POSAwesome and ring up a sale with …
+        2. Click 'Print receipt'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Service log output
+      description: From the control panel at http://localhost:5058/ — redact customer data.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: format
+    attributes:
+      label: Print format HTML
+      description: |
+        The ERPNext Print Format involved (redact customer data). Needed for any
+        layout/parsing issue — without it we can only guess.
+      render: html
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues for duplicates
+          required: true
+        - label: I am on the latest release of the service
+          required: true

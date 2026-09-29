@@ -1,5 +1,10 @@
 # API Printer Service
 
+[![CI](https://github.com/manconsultingltd/pos-api-printer-service/actions/workflows/ci.yml/badge.svg)](https://github.com/manconsultingltd/pos-api-printer-service/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/manconsultingltd/pos-api-printer-service)](https://github.com/manconsultingltd/pos-api-printer-service/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Landing page](https://img.shields.io/badge/Landing-page-38bdf8)](https://manconsultingltd.github.io/pos-api-printer-service/)
+
 A small, cross-platform HTTP service that turns ERPNext / POSAwesome receipt
 HTML into raw **ESC/POS** thermal-printer commands. It prints receipts in
 about 0.5–1 second — 4–10× faster than the browser print dialog — and falls
@@ -212,6 +217,15 @@ endpoint contract, and Windows printer enumeration.
 | `api-printer-service/installers/` | Linux / Windows / macOS installer assets |
 | `api-printer-service/web/` | control-panel UI |
 | `api-printer-service/tests/` | pytest suite |
+
+## Community & project files
+
+- 🌐 **Product landing page**: <https://manconsultingltd.github.io/pos-api-printer-service/>
+- 🤝 [Contributing guide](CONTRIBUTING.md) — how to report bugs, propose features and open PRs
+- 📜 [Code of Conduct](CODE_OF_CONDUCT.md)
+- 🔒 [Security policy](SECURITY.md) — private vulnerability reporting
+- 📋 [Changelog](CHANGELOG.md)
+- 🐞 [Issue templates](.github/ISSUE_TEMPLATE/) for bugs and feature requests
 
 ## License
 

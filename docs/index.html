@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Printer Service — ERPNext receipts to ESC/POS in under a second</title>
+<meta name="description" content="A cross-platform HTTP service that turns ERPNext / POSAwesome receipt HTML into raw ESC/POS thermal-printer commands. Prints in 0.5–1s — 4–10× faster than the browser print dialog.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230f172a'/%3E%3Cpath d='M28 38h44v24H28z' fill='%2338bdf8'/%3E%3Cpath d='M34 30h32v8H34zM34 62h32v10H34z' fill='%23e2e8f0'/%3E%3Cpath d='M38 70h24v16H38z' fill='%23e2e8f0'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b1120;
+    --bg-soft: #0f172a;
+    --bg-card: #111c33;
+    --border: #1e293b;
+    --border-strong: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-faint: #64748b;
+    --accent: #38bdf8;
+    --accent-strong: #0ea5e9;
+    --accent-soft: rgba(56, 189, 248, 0.12);
+    --green: #34d399;
+    --amber: #fbbf24;
+    --code-bg: #0a0f1e;
+    --radius: 14px;
+    --max-w: 1120px;
+    --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: rgba(56,189,248,.3); }
+
+  .container { max-width: var(--max-w); margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- Nav ---------- */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(11,17,32,.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 64px;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 700; font-size: 15px; letter-spacing: -0.01em;
+    color: var(--text); text-decoration: none;
+  }
+  .logo svg { flex-shrink: 0; }
+  .logo .brand b { color: var(--accent); }
+  .nav-links { display: flex; align-items: center; gap: 28px; }
+  .nav-links a {
+    color: var(--text-dim); text-decoration: none; font-size: 14px; font-weight: 500;
+    transition: color .15s;
+  }
+  .nav-links a:hover { color: var(--text); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 18px; border-radius: 10px;
+    font-size: 14px; font-weight: 600; text-decoration: none;
+    transition: all .15s; border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--accent-strong); color: #fff;
+    box-shadow: 0 4px 16px rgba(14,165,233,.25);
+  }
+  .btn-primary:hover { background: #38bdf8; transform: translateY(-1px); }
+  .btn-ghost { color: var(--text); border-color: var(--border-strong); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-lg { padding: 13px 26px; font-size: 15px; border-radius: 12px; }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding: 96px 0 72px;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 800px 400px at 20% -10%, rgba(56,189,248,.14), transparent),
+      radial-gradient(ellipse 600px 400px at 90% 10%, rgba(52,211,153,.07), transparent);
+    pointer-events: none;
+  }
+  .hero .container { position: relative; }
+  .hero-grid {
+    display: grid; grid-template-columns: 1.05fr .95fr;
+    gap: 56px; align-items: center;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 600; color: var(--accent);
+    background: var(--accent-soft); border: 1px solid rgba(56,189,248,.25);
+    padding: 6px 14px; border-radius: 100px; margin-bottom: 24px;
+  }
+  .eyebrow .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 50% { opacity: .5; } }
+  h1 {
+    font-size: clamp(34px, 5vw, 54px);
+    line-height: 1.12; letter-spacing: -0.03em; font-weight: 800;
+    margin-bottom: 20px;
+  }
+  h1 .grad {
+    background: linear-gradient(90deg, var(--accent), var(--green));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero-sub {
+    font-size: 18px; color: var(--text-dim); max-width: 520px;
+    margin-bottom: 32px;
+  }
+  .hero-sub strong { color: var(--text); }
+  .hero-ctas { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 28px; }
+  .hero-meta {
+    display: flex; gap: 20px; flex-wrap: wrap;
+    font-size: 13px; color: var(--text-faint);
+  }
+  .hero-meta span { display: inline-flex; align-items: center; gap: 6px; }
+  .hero-meta svg { opacity: .7; }
+
+  /* Hero terminal card */
+  .terminal {
+    background: var(--code-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0,0,0,.5), 0 0 0 1px rgba(56,189,248,.06);
+    font-family: var(--mono); font-size: 13px;
+  }
+  .terminal-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px; background: var(--bg-soft);
+    border-bottom: 1px solid var(--border);
+  }
+  .terminal-bar .tdot { width: 11px; height: 11px; border-radius: 50%; }
+  .terminal-bar .title { margin-left: auto; font-size: 12px; color: var(--text-faint); font-family: var(--font); }
+  .terminal-body { padding: 20px 22px; line-height: 1.9; overflow-x: auto; }
+  .t-dim { color: var(--text-faint); }
+  .t-green { color: var(--green); }
+  .t-blue { color: var(--accent); }
+  .t-amber { color: var(--amber); }
+  .t-text { color: var(--text); }
+  .cursor {
+    display: inline-block; width: 8px; height: 15px;
+    background: var(--accent); vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------- Sections ---------- */
+  section { padding: 80px 0; }
+  .section-label {
+    font-size: 13px; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 12px;
+  }
+  h2 {
+    font-size: clamp(26px, 3.4vw, 36px); font-weight: 800;
+    letter-spacing: -0.02em; line-height: 1.2; margin-bottom: 14px;
+  }
+  .section-sub { color: var(--text-dim); font-size: 16px; max-width: 640px; margin-bottom: 48px; }
+  .center-head { text-align: center; }
+  .center-head .section-sub { margin-left: auto; margin-right: auto; }
+
+  /* Flow */
+  .flow-wrap {
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: 18px; padding: 48px 32px;
+  }
+  .flow {
+    display: flex; align-items: stretch; justify-content: center;
+    gap: 0; flex-wrap: wrap;
+  }
+  .flow-node {
+    background: var(--bg-card); border: 1px solid var(--border-strong);
+    border-radius: 12px; padding: 18px 20px; text-align: center;
+    min-width: 150px;
+  }
+  .flow-node .fn-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .flow-node .fn-sub { font-size: 12px; color: var(--text-faint); }
+  .flow-node.hot { border-color: rgba(56,189,248,.5); box-shadow: 0 0 24px rgba(56,189,248,.12); }
+  .flow-node.hot .fn-title { color: var(--accent); }
+  .flow-arrow {
+    display: flex; align-items: center; padding: 0 14px;
+    color: var(--text-faint); font-size: 20px;
+  }
+
+  /* Features grid */
+  .grid-3 {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px;
+    transition: transform .15s, border-color .15s, box-shadow .15s;
+  }
+  .card:hover {
+    transform: translateY(-3px); border-color: var(--border-strong);
+    box-shadow: 0 12px 32px rgba(0,0,0,.35);
+  }
+  .card .icon {
+    width: 44px; height: 44px; border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent-soft); margin-bottom: 18px;
+  }
+  .card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.01em; }
+  .card p { font-size: 14px; color: var(--text-dim); }
+  .card code {
+    font-family: var(--mono); font-size: 12.5px;
+    background: var(--code-bg); border: 1px solid var(--border);
+    padding: 1px 6px; border-radius: 5px; color: var(--accent);
+  }
+
+  /* Modes comparison */
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .mode-card {
+    border-radius: 18px; padding: 36px;
+    border: 1px solid var(--border); background: var(--bg-soft);
+    position: relative;
+  }
+  .mode-card.recommended {
+    border-color: rgba(52,211,153,.45);
+    background: linear-gradient(180deg, rgba(52,211,153,.06), transparent 55%), var(--bg-soft);
+  }
+  .mode-badge {
+    position: absolute; top: -13px; left: 32px;
+    background: var(--green); color: #052e22;
+    font-size: 12px; font-weight: 700; letter-spacing: .04em;
+    padding: 4px 12px; border-radius: 100px; text-transform: uppercase;
+  }
+  .mode-card h3 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+  .mode-card .mode-tag {
+    font-family: var(--mono); font-size: 12px; color: var(--accent);
+    background: var(--accent-soft); padding: 2px 8px; border-radius: 5px;
+  }
+  .mode-card > p { color: var(--text-dim); font-size: 14.5px; margin: 14px 0 20px; }
+  .mode-card ul { list-style: none; }
+  .mode-card li {
+    font-size: 14px; color: var(--text-dim);
+    padding: 7px 0 7px 26px; position: relative;
+    border-bottom: 1px solid rgba(30,41,59,.6);
+  }
+  .mode-card li:last-child { border-bottom: none; }
+  .mode-card li::before {
+    content: "✓"; position: absolute; left: 2px;
+    color: var(--green); font-weight: 700;
+  }
+  .mode-card.legacy li::before { content: "—"; color: var(--text-faint); }
+  .mode-card .attr {
+    display: inline-block; margin-top: 18px;
+    font-family: var(--mono); font-size: 13px;
+    background: var(--code-bg); border: 1px solid var(--border-strong);
+    padding: 8px 14px; border-radius: 8px; color: var(--amber);
+  }
+
+  /* Code blocks with copy */
+  .code-card {
+    background: var(--code-bg); border: 1px solid var(--border-strong);
+    border-radius: 12px; overflow: hidden; margin-top: 16px;
+    font-family: var(--mono); font-size: 13.5px;
+  }
+  .code-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; background: var(--bg-soft);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font); font-size: 12px; color: var(--text-faint);
+  }
+  .copy-btn {
+    background: none; border: 1px solid var(--border-strong);
+    color: var(--text-dim); font-size: 11.5px; font-weight: 600;
+    padding: 4px 12px; border-radius: 7px; cursor: pointer;
+    font-family: var(--font); transition: all .15s;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn.copied { border-color: var(--green); color: var(--green); }
+  .code-card pre {
+    padding: 18px 20px; overflow-x: auto; line-height: 1.7;
+    color: var(--text);
+  }
+  .c-cmd { color: var(--accent); }
+  .c-flag { color: var(--amber); }
+  .c-str { color: var(--green); }
+  .c-dim { color: var(--text-faint); }
+
+  .api-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+
+  /* Install */
+  .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .step {
+    display: flex; gap: 16px; align-items: flex-start; margin-bottom: 22px;
+  }
+  .step-num {
+    flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent-soft); border: 1px solid rgba(56,189,248,.35);
+    color: var(--accent); font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step h4 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .step p { font-size: 13.5px; color: var(--text-dim); }
+  .step p a { color: var(--accent); text-decoration: none; }
+  .step p a:hover { text-decoration: underline; }
+
+  /* Spec table */
+  .spec-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .spec-table th, .spec-table td {
+    text-align: left; padding: 13px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .spec-table th { color: var(--text-faint); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+  .spec-table td:first-child { color: var(--text-dim); width: 38%; }
+  .spec-table td { color: var(--text); }
+  .spec-table code { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+  .spec-card {
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+
+  /* CTA band */
+  .cta-band {
+    background: linear-gradient(135deg, rgba(56,189,248,.12), rgba(52,211,153,.08));
+    border: 1px solid rgba(56,189,248,.25);
+    border-radius: 20px; padding: 56px 40px; text-align: center;
+  }
+  .cta-band h2 { margin-bottom: 10px; }
+  .cta-band p { color: var(--text-dim); margin-bottom: 28px; }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 40px 0 48px; margin-top: 40px;
+  }
+  .footer-inner {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 20px;
+  }
+  .footer-inner p { font-size: 13px; color: var(--text-faint); }
+  .footer-inner a { color: var(--text-dim); text-decoration: none; }
+  .footer-inner a:hover { color: var(--accent); }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .hero-grid, .grid-3, .modes, .api-grid, .install-grid { grid-template-columns: 1fr; }
+    .hero { padding: 64px 0 48px; }
+    .nav-links a:not(.btn) { display: none; }
+    .flow { flex-direction: column; align-items: stretch; }
+    .flow-arrow { justify-content: center; transform: rotate(90deg); padding: 4px 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<nav>
+  <div class="container nav-inner">
+    <a class="logo" href="#">
+      <svg width="26" height="26" viewBox="0 0 100 100" fill="none">
+        <rect width="100" height="100" rx="22" fill="#0ea5e9" fill-opacity=".15" stroke="#0ea5e9" stroke-opacity=".4"/>
+        <path d="M28 38h44v24H28z" fill="#38bdf8"/>
+        <path d="M34 28h32v10H34zM34 62h32v10H34z" fill="#e2e8f0"/>
+        <path d="M38 72h24v14H38z" fill="#94a3b8"/>
+      </svg>
+      <span class="brand">API Printer <b>Service</b></span>
+    </a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#modes">Print modes</a>
+      <a href="#api">API</a>
+      <a href="#install">Install</a>
+      <a class="btn btn-primary" href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Download
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="container hero-grid">
+    <div>
+      <span class="eyebrow"><span class="dot"></span> Open source · MIT License</span>
+      <h1>ERPNext receipts to <span class="grad">ESC/POS</span> in under a second.</h1>
+      <p class="hero-sub">
+        A small, cross-platform HTTP service that turns POSAwesome receipt HTML into raw
+        thermal-printer commands — <strong>4–10× faster</strong> than the browser print dialog,
+        with automatic fallback when it isn't reachable.
+      </p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary btn-lg" href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener">Get the installer</a>
+        <a class="btn btn-ghost btn-lg" href="https://github.com/manconsultingltd/pos-api-printer-service" target="_blank" rel="noopener">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.42 7.42 0 014 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+      <div class="hero-meta">
+        <span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8M12 18v4"/></svg>
+          Linux · Windows · macOS
+        </span>
+        <span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Localhost only — <code style="font-family:var(--mono)">127.0.0.1:5058</code>
+        </span>
+        <span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          ~0.5–1s per receipt
+        </span>
+      </div>
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="tdot" style="background:#ff5f57"></span>
+        <span class="tdot" style="background:#febc2e"></span>
+        <span class="tdot" style="background:#28c840"></span>
+        <span class="title">POS receipt → thermal printer</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-dim">$</span> <span class="t-text">curl -X POST localhost:5058/api/print-html \</span></div>
+        <div class="t-dim">&nbsp;&nbsp;&nbsp;&nbsp;-d '{"printer":"ThermalPrinter",</div>
+        <div class="t-dim">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"html":"&lt;receipt…&gt;","paper_width":58}'</div>
+        <div>&nbsp;</div>
+        <div><span class="t-green">✓ Parsed receipt HTML</span> <span class="t-dim">— literal mode</span></div>
+        <div><span class="t-green">✓ Generated ESC/POS byte stream</span></div>
+        <div><span class="t-green">✓ Sent to CUPS → ThermalPrinter</span></div>
+        <div>&nbsp;</div>
+        <div><span class="t-blue">200 OK</span> <span class="t-amber">printed in 0.68s</span><span class="cursor"></span></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ HOW IT WORKS ============ -->
+<section id="how">
+  <div class="container">
+    <p class="section-label">How it works</p>
+    <h2>From Jinja template to paper, in one hop.</h2>
+    <p class="section-sub">
+      The service reads what your ERPNext print format already renders. No new templating
+      language, no field mapping UI — your receipt HTML goes in, printer bytes come out.
+    </p>
+    <div class="flow-wrap">
+      <div class="flow">
+        <div class="flow-node">
+          <div class="fn-title">POSAwesome</div>
+          <div class="fn-sub">browser POS</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">
+          <div class="fn-title">PrinterApi.js</div>
+          <div class="fn-sub">POST /api/print-html</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node hot">
+          <div class="fn-title">API Printer Service</div>
+          <div class="fn-sub">localhost:5058 · HTML → ESC/POS</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">
+          <div class="fn-title">CUPS / Spooler</div>
+          <div class="fn-sub">OS print queue</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">
+          <div class="fn-title">🖨️ Thermal printer</div>
+          <div class="fn-sub">58mm / 80mm paper</div>
+        </div>
+      </div>
+      <p style="text-align:center;margin-top:28px;font-size:13.5px;color:var(--text-faint)">
+        Service down or errored? POSAwesome silently falls back to the normal browser print dialog. Zero lock-in.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section id="features" style="background:var(--bg-soft);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+  <div class="container">
+    <p class="section-label">Features</p>
+    <h2>Built for real POS counters.</h2>
+    <p class="section-sub">Everything a production receipt pipeline needs — nothing it doesn't.</p>
+    <div class="grid-3">
+      <div class="card">
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+        <h3>4–10× faster printing</h3>
+        <p>Receipts print in <strong>0.5–1s</strong> — no print dialog, no rendering wait. The service streams raw ESC/POS straight to the spooler.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M2 8h20"/></svg></div>
+        <h3>Truly cross-platform</h3>
+        <p>Native installers for Linux (<code>.run</code>), Windows (<code>.exe</code>) and macOS — self-contained, <strong>no Python required</strong> on the target machine.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <h3>Localhost-only by design</h3>
+        <p>Listens exclusively on <code>127.0.0.1:5058</code>. The receipt never leaves the machine — no cloud relay, no telemetry, no attack surface.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></div>
+        <h3>Fully localized receipts</h3>
+        <p>Literal mode transcribes exactly what your Jinja renders — tax tables, amount-in-words and fiscal layouts flow through untouched.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 11-9-9"/><path d="M21 3l-9 9"/></svg></div>
+        <h3>Graceful fallback</h3>
+        <p>If the service is down, POSAwesome falls back to the browser print dialog automatically. Printing never becomes a single point of failure.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
+        <h3>Control panel & self-update</h3>
+        <p>Built-in web panel at <code>localhost:5058</code> — set the default printer, view logs, fire test prints. Releases update the service on their own.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div>
+        <h3>Cash drawer control</h3>
+        <p>One call to <code>/api/cash-drawer</code> pops the register drawer via the printer port. Test prints included for setup days.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"><path d="M4 7V4h16v3M4 7h16v13H4zM8 11h8"/></svg></div>
+        <h3>58mm & 80mm paper</h3>
+        <p>Per-request <code>paper_width</code>. The API-print marker comment in your print format (<code>58MM</code>/<code>80MM</code>) routes the receipt automatically.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></div>
+        <h3>Tested, versioned, observable</h3>
+        <p>Full pytest suite, <code>/health</code> endpoint exposing the running version, and CI-built installers attached to every GitHub release.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRINT MODES ============ -->
+<section id="modes">
+  <div class="container">
+    <p class="section-label">Print modes</p>
+    <h2>Two modes. You author the receipt, the service prints it.</h2>
+    <p class="section-sub">
+      No language detection, no country configuration. Which mode you get is decided by one
+      attribute on your print format — and legacy installs keep working unchanged.
+    </p>
+    <div class="modes">
+      <div class="mode-card recommended">
+        <span class="mode-badge">Recommended</span>
+        <h3>Literal mode</h3>
+        <span class="mode-tag">data-print-mode="literal"</span>
+        <p>Your print format owns the <strong>entire</strong> layout. The service transcribes
+        exactly the lines your Jinja renders — nothing added, nothing dropped.</p>
+        <ul>
+          <li>Fiscal layouts, tax tables & amount-in-words pass through as-is</li>
+          <li>Alignment, bold & double-size via simple CSS classes</li>
+          <li>Tables → left/center/right column lines</li>
+          <li>Blank guarded sections never leave empty lines</li>
+          <li>Right choice for any localized or country-specific ticket</li>
+        </ul>
+        <span class="attr">&lt;div data-print-mode="literal"&gt; … &lt;/div&gt;</span>
+      </div>
+      <div class="mode-card legacy">
+        <h3>Modeled mode</h3>
+        <span class="mode-tag">default fallback</span>
+        <p>The service recognizes a standard receipt shape and lays it out for you —
+        ideal for simple, uniform tickets.</p>
+        <ul>
+          <li>Detects company, items, taxes, total, payments & change</li>
+          <li>Multilingual anchors — <code>Total:</code>, <code>Totaal:</code>, <code>Factura:</code>…</li>
+          <li>Printed labels keep the receipt's own language</li>
+          <li>Extra sections via <code>data-print="header|fiscal|footer"</code> blocks</li>
+          <li>Keeps pre-literal installs working unchanged</li>
+        </ul>
+        <span class="attr">works with no attribute at all</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ API ============ -->
+<section id="api" style="background:var(--bg-soft);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+  <div class="container">
+    <p class="section-label">API</p>
+    <h2>A REST surface you can curl from anywhere.</h2>
+    <p class="section-sub">Five endpoints, JSON in and out. POSAwesome ships the client — but anything that can POST HTML can print.</p>
+    <div class="api-grid">
+      <div>
+        <div class="code-card">
+          <div class="code-head"><span>POST /api/print-html</span><button class="copy-btn" data-copy="curl -X POST http://localhost:5058/api/print-html -H &quot;Content-Type: application/json&quot; -d '{&quot;printer&quot;:&quot;ThermalPrinter&quot;,&quot;html&quot;:&quot;&lt;html&gt;...&lt;/html&gt;&quot;,&quot;paper_width&quot;:58}'">Copy</button></div>
+          <pre><span class="c-cmd">curl</span> -X POST <span class="c-str">http://localhost:5058/api/print-html</span> \
+  <span class="c-flag">-H</span> <span class="c-str">"Content-Type: application/json"</span> \
+  <span class="c-flag">-d</span> <span class="c-str">'{"printer":"ThermalPrinter",
+      "html":"&lt;html&gt;...&lt;/html&gt;",
+      "paper_width":58}'</span></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-head"><span>POST /api/cash-drawer</span><button class="copy-btn" data-copy="curl -X POST http://localhost:5058/api/cash-drawer -H &quot;Content-Type: application/json&quot; -d '{&quot;printer&quot;:&quot;ThermalPrinter&quot;}'">Copy</button></div>
+          <pre><span class="c-cmd">curl</span> -X POST <span class="c-str">http://localhost:5058/api/cash-drawer</span> \
+  <span class="c-flag">-d</span> <span class="c-str">'{"printer":"ThermalPrinter"}'</span></pre>
+        </div>
+      </div>
+      <div>
+        <div class="code-card">
+          <div class="code-head"><span>GET /health &amp; /api/printers</span><button class="copy-btn" data-copy="curl http://localhost:5058/health">Copy</button></div>
+          <pre><span class="c-cmd">curl</span> <span class="c-str">http://localhost:5058/health</span>
+<span class="c-dim"># → version, uptime — probe auto-updates</span>
+
+<span class="c-cmd">curl</span> <span class="c-str">http://localhost:5058/api/printers</span>
+<span class="c-dim"># → enumerate system printers</span></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-head"><span>POST /api/test-print</span><button class="copy-btn" data-copy="curl -X POST http://localhost:5058/api/test-print -d '{&quot;printer&quot;:&quot;ThermalPrinter&quot;,&quot;paper_width&quot;:58}'">Copy</button></div>
+          <pre><span class="c-cmd">curl</span> -X POST <span class="c-str">http://localhost:5058/api/test-print</span> \
+  <span class="c-flag">-d</span> <span class="c-str">'{"printer":"ThermalPrinter",
+      "paper_width":58}'</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ INSTALL ============ -->
+<section id="install">
+  <div class="container">
+    <p class="section-label">Install</p>
+    <h2>Up and printing in minutes.</h2>
+    <p class="section-sub">Prebuilt, self-contained installers from CI — or run from source if you prefer.</p>
+    <div class="install-grid">
+      <div>
+        <div class="step">
+          <div class="step-num">1</div>
+          <div>
+            <h4>Download the installer</h4>
+            <p>Grab the <code>.run</code> (Linux) or <code>.exe</code> (Windows) from the
+            <a href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener">GitHub Releases</a> page. Fully self-contained — no Python on the target machine.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div>
+            <h4>Create the ERPNext Print Format</h4>
+            <p>Sales Invoice · Custom Format · start the HTML with the API-print marker, then paste the
+            <a href="https://github.com/manconsultingltd/pos-api-printer-service/blob/main/api-printer-service/print_format_literal_80mm.html" target="_blank" rel="noopener">literal 80mm example</a> (or <code>58MM</code> for narrow paper).</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div>
+            <h4>Set it on the POS Profile</h4>
+            <p>Assign the Print Format to your POS Profile. POSAwesome sees the marker and routes receipts to <code>localhost:5058</code>.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div>
+            <h4>Open the control panel</h4>
+            <p>Visit <code>http://localhost:5058/</code> to pick your default printer, review the log and fire a test print.</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="spec-card">
+          <table class="spec-table">
+            <tr><th colspan="2">Service at a glance</th></tr>
+            <tr><td>Endpoint</td><td><code>http://127.0.0.1:5058</code></td></tr>
+            <tr><td>Platforms</td><td>Linux · Windows · macOS</td></tr>
+            <tr><td>Print speed</td><td>~0.5–1s per receipt</td></tr>
+            <tr><td>Paper widths</td><td>58mm & 80mm</td></tr>
+            <tr><td>Print modes</td><td>Literal (recommended) · Modeled</td></tr>
+            <tr><td>Stack</td><td>Python · FastAPI · BeautifulSoup</td></tr>
+            <tr><td>Auto-update</td><td>Standalone updater + version probe</td></tr>
+            <tr><td>License</td><td>MIT</td></tr>
+          </table>
+        </div>
+        <div class="code-card">
+          <div class="code-head"><span>Run from source</span><button class="copy-btn" data-copy="python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && python main.py">Copy</button></div>
+          <pre><span class="c-cmd">python</span> -m venv .venv && . .venv/bin/activate
+<span class="c-cmd">pip</span> install -r requirements.txt
+<span class="c-cmd">python</span> main.py   <span class="c-dim"># serves on 127.0.0.1:5058</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA ============ -->
+<section>
+  <div class="container">
+    <div class="cta-band">
+      <h2>Stop waiting for the print dialog.</h2>
+      <p>Free, open source, and installed on the counter in minutes.</p>
+      <a class="btn btn-primary btn-lg" href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener">Download the latest release</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="container footer-inner">
+    <p>© 2026 MAN Consulting Ltd · Released under the <a href="https://github.com/manconsultingltd/pos-api-printer-service/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></p>
+    <p>
+      <a href="https://github.com/manconsultingltd/pos-api-printer-service" target="_blank" rel="noopener">GitHub</a>
+      &nbsp;·&nbsp;
+      <a href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener">Releases</a>
+      &nbsp;·&nbsp;
+      <a href="https://github.com/manconsultingltd/pos-api-printer-service/issues" target="_blank" rel="noopener">Issues</a>
+    </p>
+  </div>
+</footer>
+
+<script>
+  // Copy-to-clipboard for code blocks
+  document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tmp = document.createElement('textarea');
+      tmp.innerHTML = btn.getAttribute('data-copy');
+      var text = tmp.value;
+      navigator.clipboard.writeText(text).then(function () {
+        btn.textContent = 'Copied ✓';
+        btn.classList.add('copied');
+        setTimeout(function () {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 1600);
+      });
+    });
+  });
+</script>
+</body>
+</html>
