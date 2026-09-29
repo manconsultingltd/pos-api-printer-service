@@ -106,12 +106,7 @@ pre{background:#14181B;color:#E7ECEA;padding:16px 18px;border-radius:8px;overflo
 .steps li{counter-increment:s;padding:0 0 22px 52px;position:relative;color:var(--mute)}
 .steps li:before{content:counter(s);position:absolute;left:0;top:0;width:34px;height:34px;border-radius:50%;background:var(--ink);color:var(--bg);font-weight:800;display:grid;place-items:center}
 .steps strong{color:var(--ink);display:block}
-/* faq */
-details{border-bottom:1px solid var(--line);max-width:780px}
-summary{cursor:pointer;font-weight:600;padding:18px 0;list-style:none;display:flex;justify-content:space-between;gap:16px}
-summary::after{content:"+";font-weight:400;font-size:1.4rem;line-height:1}
-details[open] summary::after{content:"–"}
-details p{color:var(--mute)}
+
 /* consulting */
 .help{background:var(--ink);color:var(--bg);border-top:0}
 .help .lede{color:color-mix(in srgb,var(--bg) 72%,transparent)}
@@ -200,7 +195,7 @@ figure{margin:0}figure img{display:block;width:100%;height:auto;border:1px solid
 </head>
 <body>
 <header><div class="w"><a class="logo" href="#top"><svg width="30" height="30" viewBox="0 0 28 28" aria-hidden="true"><rect x=".5" y=".5" width="27" height="27" rx="7" fill="#172640" stroke="#2C4B73"/><rect x="9" y="5" width="10" height="3" fill="#E8EDF5"/><rect x="7" y="8" width="14" height="6" fill="#5CB8F5"/><rect x="9" y="14" width="10" height="3" fill="#E8EDF5"/><rect x="11" y="17" width="6" height="5" fill="#97A5BB"/></svg><span>API Printer <span style="color:var(--acc)">Service</span></span></a>
-<nav><a href="#how">How it works</a><a href="#features">Features</a><a href="#modes">Print modes</a><a href="#api">API</a><a href="#install">Install</a><a href="#faq">FAQ</a></nav>
+<nav><a href="#how">How it works</a><a href="#features">Features</a><a href="#modes">Print modes</a><a href="#api">API</a><a href="#install">Install</a></nav>
 <a class="btn sm" href="https://github.com/manconsultingltd/pos-api-printer-service/releases" target="_blank" rel="noopener noreferrer">Download</a></div></header>
 
 <main id="top">
@@ -372,15 +367,6 @@ python main.py   # serves on 127.0.0.1:5058</pre></div>
 </div>
 </div></section>
 
-<section id="faq"><div class="w">
-<h2>Questions</h2>
-<details><summary>What happens if the service isn't running?</summary><p>POSAwesome falls back to the standard browser print dialog, so the sale can still be printed.</p></details>
-<details><summary>Does the receipt leave the computer?</summary><p>No. The service listens on 127.0.0.1 only, so receipts go from the browser to the local service to your printer.</p></details>
-<details><summary>Which paper sizes work?</summary><p>58 mm and 80 mm. Choose with the marker comment in your print format or the <code>paper_width</code> field in the API.</p></details>
-<details><summary>Do I need to change my existing print formats?</summary><p>For new formats, start with literal mode. Formats without the <code>data-print-mode</code> attribute keep working in modeled mode.</p></details>
-<details><summary>Which operating systems are supported?</summary><p>Linux and Windows, with prebuilt installers. There is no macOS version.</p></details>
-<details><summary>Is it free?</summary><p>Yes. It's open source under the MIT license.</p></details>
-</div></section>
 
 <section class="final"><div class="w"><div class="fc">
 <h2>Stop waiting for the print dialog.</h2>
