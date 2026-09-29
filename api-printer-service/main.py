@@ -220,6 +220,12 @@ def update_install() -> Dict[str, Any]:
         return u.install()
     except UpdateError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001 — install must NEVER answer a bare
+        # text/plain 500: the GUI cannot parse it and reports the useless
+        # 'HTTP Error 500: Internal Server Error'. Answer JSON with the real
+        # cause instead, and keep the traceback in the service log.
+        logger.exception("update install failed with an unexpected error")
+        raise HTTPException(status_code=500, detail=f"update install failed: {e}")
 
 
 def updater_missing(u) -> bool:
