@@ -90,3 +90,70 @@ class TestInstallGuards:
         u._publish({"status": "up-to-date"})
         with pytest.raises(updater_mod.UpdateError):
             u.install()
+
+
+class FakeInstallerProc:
+    """Minimal stand-in for subprocess.Popen in watchdog tests."""
+    def __init__(self, code=0, timeout_s=None, hang=False):
+        self._code = code
+        self._timeout_s = timeout_s
+        self._hang = hang
+        self.wait = self._wait
+
+    def _wait(self, timeout=None):
+        if self._hang:
+            raise updater_mod.subprocess.TimeoutExpired(cmd="installer", timeout=timeout)
+        return self._code
+
+
+class TestInstallWatchdog:
+    def _u(self, tmp_path, monkeypatch, platform="windows", current="1.1.50"):
+        u = make_updater(platform=platform, current=current)
+        u._mutex = __import__("threading").Lock()
+        return u
+
+    def _prime(self, u):
+        u._publish({
+            "status": "available",
+            "available_version": "1.1.51",
+            "asset_name": "api-printer-setup-windows.exe",
+            "release_url": f"https://github.com/{SLUG}/releases/tag/v1.1.51",
+        })
+
+    def test_installer_failure_back_to_available(self, tmp_path, monkeypatch):
+        import updater as up
+        u = self._u(tmp_path, monkeypatch)
+        self._prime(u)
+        monkeypatch.setattr(up.Updater, "_download_asset", lambda self, st: "/tmp/fake.exe")
+        monkeypatch.setattr(up.Updater, "_launch_installer",
+                            lambda self, path: FakeInstallerProc(code=3))
+        u.install()
+        assert u.state()["status"] == "available"
+        assert "code 3" in u.state()["error"]
+
+    def test_installer_hang_times_out_to_error(self, tmp_path, monkeypatch):
+        import updater as up
+        u = self._u(tmp_path, monkeypatch)
+        self._prime(u)
+        monkeypatch.setattr(up.Updater, "_download_asset", lambda self, st: "/tmp/fake.exe")
+        monkeypatch.setattr(up.Updater, "_launch_installer",
+                            lambda self, path: FakeInstallerProc(hang=True))
+        monkeypatch.setattr(up, "INSTALLER_TIMEOUT_S", 0.1)
+        u.install()
+        import time as _t
+        _t.sleep(0.3)  # watchdog thread publishes asynchronously
+        s = u.state()
+        assert s["status"] == "error"
+        assert "minutes" in s["error"]
+
+    def test_installer_success_reports_ready(self, tmp_path, monkeypatch):
+        import updater as up
+        u = self._u(tmp_path, monkeypatch)
+        self._prime(u)
+        monkeypatch.setattr(up.Updater, "_download_asset", lambda self, st: "/tmp/fake.exe")
+        monkeypatch.setattr(up.Updater, "_launch_installer",
+                            lambda self, path: FakeInstallerProc(code=0))
+        u.install()
+        import time as _t
+        _t.sleep(0.2)
+        assert u.state()["status"] == "ready"

@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 import tkinter as tk
 from functools import partial
@@ -359,6 +360,8 @@ class PrinterControlApp:
         self._service_action_in_flight = False
         self.update_state: dict | None = None
         self._notified_update_version: str | None = None
+        self._install_request_started: float | None = None
+        self._install_stuck_reported: bool = False
         self._tray_icon: Any = None
 
         self.root.title(APP_NAME)
@@ -541,6 +544,12 @@ class PrinterControlApp:
         log_frame = ttk.LabelFrame(outer, text="Log", padding=(10, 6))
         log_frame.pack(fill="both", expand=False)
 
+        log_head = ttk.Frame(log_frame)
+        log_head.pack(fill="x", pady=(0, 4))
+        ttk.Button(
+            log_head, text="Clear log", command=self._clear_log, width=10,
+        ).pack(side="right")
+
         log_box = ttk.Frame(log_frame)
         log_box.pack(fill="both", expand=True)
 
@@ -564,6 +573,14 @@ class PrinterControlApp:
         self.log_view.insert("end", msg + "\n", tag)
         self.log_view.see("end")
         self.log_view.configure(state="disabled")
+
+    def _clear_log(self) -> None:
+        """Wipe the in-panel log box (display only — the service's log file
+        on disk is untouched)."""
+        self.log_view.configure(state="normal")
+        self.log_view.delete("1.0", "end")
+        self.log_view.configure(state="disabled")
+        self._log("Log cleared.", "info")
 
     # ---- Event handlers -----------------------------------------------------
 
@@ -608,6 +625,11 @@ class PrinterControlApp:
         "error":       ("#e74c3c", "Error"),
     }
 
+    # Mirrors the service-side installer watchdog (updater.py) so the GUI
+    # reports a stuck silent install instead of showing "Installing…" all
+    # day.
+    INSTALL_STUCK_TIMEOUT_S = 15 * 60
+
     def _apply_update(self, s: dict | None) -> None:
         # An error-only payload ({"error": ...}, from a 404/503 on an old
         # service) must render like "no data", not as a pseudo-state.
@@ -620,8 +642,40 @@ class PrinterControlApp:
             self.update_install_btn.config(state="disabled")
             return
         self.update_state = s
+        status = s.get("status", "idle")
+
+        # Stuck-install watchdog. The service normally dies mid-install
+        # (the installer stops it), so "installing" persisting across many
+        # refreshes means the installer FAILED or HUNG before stopping the
+        # service — exactly the stuck "Installing…" users reported. After
+        # 15 min with no change, surface it in the log and state instead of
+        # sitting on the label forever.
+        if status == "installing":
+            started = getattr(self, "_install_request_started", None)
+            if started is None:
+                # State arrived 'installing' from a fresh app start — anchor
+                # the clock now rather than treat the install as ancient.
+                self._install_request_started = time.monotonic()
+            elif (
+                time.monotonic() - started > self.INSTALL_STUCK_TIMEOUT_S
+                and not getattr(self, "_install_stuck_reported", False)
+            ):
+                self._install_stuck_reported = True
+                self._log(
+                    "The update installer has not completed in "
+                    f"{self.INSTALL_STUCK_TIMEOUT_S // 60} minutes and the "
+                    "service is still running — it is likely hung or failed. "
+                    "Check %ProgramData%\\api-printer-service\\install-log.txt "
+                    "and press Check now, then Install update to retry.", "err",
+                )
+        else:
+            if getattr(self, "_install_stuck_reported", False):
+                self._install_stuck_reported = False
+            if status != "installing":
+                self._install_request_started = None
+
         colour, label = self.UPDATE_STATUS_LABELS.get(
-            s.get("status", "idle"), ("", "—"),
+            status, ("", "—"),
         )
         version = s.get("available_version")
         self.update_status_label.config(
@@ -717,6 +771,7 @@ class PrinterControlApp:
 
     def _do_update_install(self) -> None:
         self.update_install_btn.config(state="disabled")
+        self._install_request_started = time.monotonic()
         self._log("Downloading update installer…")
 
         def work():

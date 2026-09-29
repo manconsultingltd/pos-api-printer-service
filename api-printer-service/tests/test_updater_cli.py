@@ -107,12 +107,46 @@ class TestInstall:
         launched = []
         monkeypatch.setattr(updater_cli, "_download",
                             lambda url, asset: downloaded.append((url, asset)) or "/tmp/x.exe")
+
+        class FakeProc:
+            def wait(self, timeout=None):
+                return 0  # success → watchdog flips state to 'ready'
         monkeypatch.setattr(updater_cli, "_launch_installer_windows",
-                            lambda p: launched.append(p))
+                            lambda p: launched.append(p) or FakeProc())
         feed(monkeypatch, [make_release("1.1.51")])
         assert updater_cli.run(env, install_now=True) == 0
         assert downloaded and launched == ["/tmp/x.exe"]
-        assert state(env)["status"] == "installing"
+        # The install launched and the watchdog ran: a successful silent
+        # installer ends 'ready', not 'installing' (which is never terminal).
+        assert state(env)["status"] == "ready"
+
+    def test_installer_failure_leaves_retryable_state(self, env, monkeypatch, windows):
+        monkeypatch.setattr(updater_cli, "_download", lambda url, asset: "/tmp/x.exe")
+
+        class FakeProc:
+            def wait(self, timeout=None):
+                return 2
+        monkeypatch.setattr(updater_cli, "_launch_installer_windows", lambda p: FakeProc())
+        feed(monkeypatch, [make_release("1.1.51")])
+        updater_cli.run(env, install_now=True)
+        s = state(env)
+        assert s["status"] == "available"  # retryable, not stuck
+        assert "code 2" in s["error"]
+
+    def test_installer_hang_publishes_timeout(self, env, monkeypatch, windows):
+        import subprocess as _sp
+        monkeypatch.setattr(updater_cli, "_download", lambda url, asset: "/tmp/x.exe")
+
+        class HangingProc:
+            def wait(self, timeout=None):
+                raise _sp.TimeoutExpired(cmd="installer", timeout=timeout)
+        monkeypatch.setattr(updater_cli, "_launch_installer_windows", lambda p: HangingProc())
+        monkeypatch.setattr(updater_cli, "INSTALLER_TIMEOUT_S", 0.05)
+        feed(monkeypatch, [make_release("1.1.51")])
+        updater_cli.run(env, install_now=True)
+        s = state(env)
+        assert s["status"] == "error"
+        assert "minutes" in s["error"]
 
     def test_no_asset_no_install(self, env, monkeypatch, windows):
         launched = []
