@@ -23,6 +23,8 @@ from html_parser import HtmlReceiptParser
 from printer_manager import PrinterManager
 from pydantic import BaseModel, Field
 
+from service_version import VERSION
+
 import service_controller
 from updater import UpdateError, get_updater, init_updater
 from update_settings import (
@@ -314,6 +316,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "api-printer-service",
+        "version": VERSION,  # CI stamps 1.1.<run_number> at release build
         "timestamp": datetime.now().isoformat(),
     }
 
