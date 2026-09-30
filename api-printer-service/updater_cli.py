@@ -56,6 +56,11 @@ from service_version import VERSION
 
 DOWNLOAD_CHUNK = 256 * 1024
 
+# Same watchdog bound as the in-service updater (updater.py): a silent
+# installer that hangs must not leave 'installing' in update-state.json
+# forever — the GUI reads that state and would show "Installing…" eternally.
+INSTALLER_TIMEOUT_S = 15 * 60
+
 # Detached-process flags for the silent installer (Windows).
 _CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 _DETACHED = 0x00000008 | 0x00000200 | 0x01000000 if sys.platform == "win32" else 0
@@ -165,10 +170,12 @@ def _download(release_url: str, asset_name: str) -> str:
         raise
 
 
-def _launch_installer_windows(path: str) -> None:
+def _launch_installer_windows(path: str) -> "subprocess.Popen":
     """/S = silent NSIS. The installer stops this machine's service, replaces
-    the files and re-registers/starts the task itself."""
-    subprocess.Popen(
+    the files and re-registers/starts the task itself. The Popen handle is
+    returned so the caller can watch the exit code instead of leaving
+    'installing' as a terminal state."""
+    return subprocess.Popen(
         [path, "/S"],
         creationflags=_DETACHED,
         close_fds=True,
@@ -176,6 +183,43 @@ def _launch_installer_windows(path: str) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+
+def _watch_installer_windows(settings_file: str, proc: "subprocess.Popen") -> None:
+    """Publish the installer's outcome to update-state.json.
+
+    The CLI process may be killed by the Task Scheduler's 30-minute limit
+    while waiting (harmless: the installer runs detached), so this is
+    best-effort by design — it only matters when the installer fails or
+    hangs BEFORE stopping the service, in which case somebody has to move
+    the state out of 'installing'."""
+    try:
+        code = proc.wait(timeout=INSTALLER_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        write_state(settings_file, {
+            "status": "error",
+            "progress_percent": None,
+            "error": (
+                f"the installer did not finish within "
+                f"{INSTALLER_TIMEOUT_S // 60} minutes — it may be hung; "
+                "check the install log and try again"
+            ),
+        })
+        return
+    if code == 0:
+        write_state(settings_file, {
+            "status": "ready", "progress_percent": 100, "error": None,
+        })
+        return
+    write_state(settings_file, {
+        "status": "available",
+        "progress_percent": None,
+        "error": (
+            f"the installer exited with code {code} and the update was "
+            "not applied — the previous version is still running; "
+            "retry later"
+        ),
+    })
 
 
 def _check(settings_file: str) -> dict:
@@ -285,7 +329,8 @@ def run(settings_file: str, check_now: bool = False, install_now: bool = False) 
             })
             return 1
         write_state(settings_file, {"status": "installing", "progress_percent": 100})
-        _launch_installer_windows(path)
+        proc = _launch_installer_windows(path)
+        _watch_installer_windows(settings_file, proc)
     return 0
 
 

@@ -29,7 +29,7 @@ class TestNormalize:
 
     def test_valid_roundtrip(self):
         s = normalize_update_settings({"channel": "preview", "last_checked_at": 123.5})
-        assert s == {"channel": "preview", "last_checked_at": 123.5}
+        assert s == {"channel": "preview", "debug": False, "last_checked_at": 123.5}
 
     def test_bad_last_checked_does_not_discard_channel(self):
         s = normalize_update_settings({"channel": "preview", "last_checked_at": "x"})

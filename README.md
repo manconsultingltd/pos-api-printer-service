@@ -13,6 +13,8 @@ back to browser printing when it isn't reachable.
 The service listens on `127.0.0.1:5058` (localhost only) and runs on Linux,
 Windows and macOS.
 
+
+
 ## How it works
 
 ```

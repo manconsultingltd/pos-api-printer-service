@@ -221,6 +221,7 @@
         </select>
         <button id="btn-upd-check" class="primary">Check now</button>
         <button id="btn-upd-install" disabled>Install update</button>
+        <label style="font-size:12px"><input type="checkbox" id="upd-debug"> Debug</label>
         <a id="upd-link" href="#" target="_blank" rel="noreferrer" style="display:none">Release notes ↗</a>
       </div>
       <div id="upd-note" class="muted" style="margin-top:8px;font-size:12px"></div>
@@ -228,7 +229,10 @@
   </div>
 
   <div class="card">
-    <div class="head">Log</div>
+    <div class="head">
+      Log
+      <button id="btn-clear-log" style="float:right;font-size:11px;padding:2px 8px">Clear log</button>
+    </div>
     <div class="body">
       <div class="log" id="log"></div>
     </div>
@@ -251,6 +255,11 @@
     logBox.appendChild(line);
     logBox.scrollTop = logBox.scrollHeight;
   }
+
+  $("btn-clear-log").addEventListener("click", () => {
+    logBox.textContent = "";
+    log("Log cleared.");
+  });
 
   async function api(method, path, body) {
     const opts = { method, headers: {} };
@@ -428,8 +437,41 @@
     const st = UPD_STATES[s.status] || UPD_STATES.idle;
     $("upd-dot").className = "dot " + st.cls;
     $("upd-label").textContent = st.label + (s.available_version ? " — v" + s.available_version : "");
+    // Stuck-install watchdog: 'installing' is never terminal on the happy
+    // path (the installer stops the service mid-flight). If the service is
+    // still up and the state has said "Installing…" for over 15 minutes,
+    // the installer is hung/failed — say so in the log instead of sitting
+    // on the label forever.
+    if (s.status === "installing") {
+      if (!window._updInstallSince) window._updInstallSince = Date.now();
+      else if (
+        Date.now() - window._updInstallSince > 15 * 60 * 1000
+        && !window._updInstallStuckLogged
+      ) {
+        window._updInstallStuckLogged = true;
+        log(
+          "✗ The update installer has not completed in 15 minutes and the " +
+          "service is still running — it is likely hung or failed. Check " +
+          "%ProgramData%\\api-printer-service\\install-log.txt, then use " +
+          "Check now and Install update to retry.", "fail",
+        );
+      }
+    } else {
+      window._updInstallSince = null;
+      window._updInstallStuckLogged = false;
+    }
     $("upd-version").textContent = "v" + s.current_version;
     $("upd-channel").value = s.channel || "stable";
+    // Debug state sync + verbose lines → log box. New lines only: the
+    // status is polled every few seconds and re-rendering the whole list
+    // would spam the log.
+    const dbgLog = s.debug_log || [];
+    if (window._updDebugShown === undefined) window._updDebugShown = 0;
+    if (dbgLog.length < window._updDebugShown) window._updDebugShown = 0;
+    for (let i = window._updDebugShown; i < dbgLog.length; i++) {
+      log("[upd] " + dbgLog[i]);
+    }
+    window._updDebugShown = dbgLog.length;
     $("btn-upd-install").disabled = !(s.capability === "auto" && s.status === "available");
     const link = $("upd-link");
     if (s.release_url && s.capability !== "auto") {
@@ -446,6 +488,15 @@
     try { renderUpdate(await api("GET", "/api/update/status")); }
     catch (_) { $("upd-label").textContent = "Unavailable"; }
   }
+
+  $("upd-debug").addEventListener("change", async () => {
+    try {
+      const s = await api("POST", "/api/update/set-debug", { debug: $("upd-debug").checked });
+      window._updDebugShown = 0; // debug toggle resets the published log
+      renderUpdate(s);
+      log("Update debug " + (s.debug ? "enabled — downloads will be logged in detail." : "disabled."), "ok");
+    } catch (e) { log("✗ Debug toggle failed: " + e.message, "fail"); }
+  });
 
   $("upd-channel").addEventListener("change", async () => {
     try {

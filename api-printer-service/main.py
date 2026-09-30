@@ -175,6 +175,11 @@ class UpdateChannelModel(BaseModel):
     channel: str
 
 
+class UpdateDebugModel(BaseModel):
+    """Toggle verbose update-download diagnostics."""
+    debug: bool
+
+
 @app.get("/api/update/status")
 async def update_status() -> Dict[str, Any]:
     """Current self-update state (idle / checking / available / error, ...)."""
@@ -207,6 +212,16 @@ def update_set_channel(body: UpdateChannelModel) -> Dict[str, Any]:
     return u.set_channel(body.channel)
 
 
+@app.post("/api/update/set-debug")
+def update_set_debug(body: UpdateDebugModel) -> Dict[str, Any]:
+    """Verbose mode: the updater logs (and publishes to /api/update/status)
+    exactly what it downloads, from which URL, sizes and progress."""
+    u = get_updater()
+    if updater_missing(u):
+        raise HTTPException(status_code=503, detail="Updater not initialized")
+    return u.set_debug(body.debug)
+
+
 @app.post("/api/update/install")
 def update_install() -> Dict[str, Any]:
     """Auto path only (Windows): download the release's installer and run it
@@ -220,6 +235,12 @@ def update_install() -> Dict[str, Any]:
         return u.install()
     except UpdateError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001 — install must NEVER answer a bare
+        # text/plain 500: the GUI cannot parse it and reports the useless
+        # 'HTTP Error 500: Internal Server Error'. Answer JSON with the real
+        # cause instead, and keep the traceback in the service log.
+        logger.exception("update install failed with an unexpected error")
+        raise HTTPException(status_code=500, detail=f"update install failed: {e}")
 
 
 def updater_missing(u) -> bool:

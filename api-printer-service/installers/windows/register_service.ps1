@@ -159,6 +159,11 @@ set PYTHONUNBUFFERED=1
         exit 1
     }
 
+    # Start the freshly (re-)registered task. After a silent self-update
+    # this is the ONLY thing that brings the new version up — and it only
+    # works if the port is actually free, which is why the installer kills
+    # any non-task listener on 5058 before copying files (a hand-started
+    # instance survives schtasks /End and would make this bind fail).
     Start-ScheduledTask -TaskName $TaskName
 
     # --- Out-of-service updater task (independent of the service) ---------

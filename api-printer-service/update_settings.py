@@ -47,13 +47,16 @@ def normalize_update_settings(raw: Any) -> Dict[str, Any]:
     """
     source = raw if isinstance(raw, dict) else {}
     channel = source.get("channel") if is_update_channel(source.get("channel")) else DEFAULT_CHANNEL
+    # Debug flag is deliberately separate from the ring: a verbose download
+    # log must never depend on which ring the machine is on.
+    debug = bool(source.get("debug"))
     raw_last = source.get("last_checked_at")
     last_checked_at = (
         raw_last if isinstance(raw_last, (int, float))
         and not isinstance(raw_last, bool)
         and raw_last > 0 else None
     )
-    return {"channel": channel, "last_checked_at": last_checked_at}
+    return {"channel": channel, "debug": debug, "last_checked_at": last_checked_at}
 
 
 def read_update_settings(file: str) -> Dict[str, Any]:
