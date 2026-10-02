@@ -306,7 +306,7 @@ figure{margin:0}figure img{display:block;width:100%;height:auto;border:1px solid
 <div class="viz"><code class="chip">POST /api/cash-drawer</code></div></article>
 <article class="bn b6"><h3>58 mm and 80 mm paper</h3><p>Choose the width per request, or let the marker in your print format decide.</p>
 <div class="viz papers"><div class="strip s58">58 mm</div><div class="strip s80">80 mm</div></div></article>
-<article class="bn"><h3>Control panel and tray icon</h3><p>Pick the printer, print a test page and update without a terminal. <a href="#app">See the app</a></p>
+<article class="bn"><h3>Control panel and tray icon</h3><p>Pick the printer, choose 1–3 copies, print a test page and update without a terminal. <a href="#app">See the app</a></p>
 <div class="viz menu"><div>Open window</div><div>Select printer</div><div>Print test page</div><div>Check for updates</div></div></article>
 </div>
 </div></section>
@@ -338,7 +338,8 @@ figure{margin:0}figure img{display:block;width:100%;height:auto;border:1px solid
   -H "Content-Type: application/json" \
   -d '{"printer":"ThermalPrinter",
        "html":"&lt;html&gt;...&lt;/html&gt;",
-       "paper_width":58}'</pre></div><div class="cc"><div class="ch"><span>GET /health and /api/printers</span><button class="cp" type="button">Copy</button></div><pre>curl http://localhost:5058/health
+       "paper_width":58,
+       "copies":2}'</pre></div><div class="cc"><div class="ch"><span>GET /health and /api/printers</span><button class="cp" type="button">Copy</button></div><pre>curl http://localhost:5058/health
 # version and uptime
 
 curl http://localhost:5058/api/printers
@@ -356,7 +357,7 @@ curl http://localhost:5058/api/printers
 <li><strong>Download the installer</strong>Grab the <code>.run</code> (Linux) or <code>.exe</code> (Windows) from the <a href="https://github.com/manconsultingltd/pos-api-printer-service/releases/latest" target="_blank" rel="noopener noreferrer">GitHub Releases</a> page. Fully self-contained, no Python on the target machine.</li>
 <li><strong>Create the Print Format</strong>Sales Invoice, Custom Format on. Start the HTML with the API-print marker <code>&lt;!--API_PRINT_ESC_POS_THERMAL_80MM--&gt;</code> (or <code>58MM</code> for narrow paper), then paste the <a href="https://github.com/manconsultingltd/pos-api-printer-service/blob/main/api-printer-service/print_format_literal_80mm.html" target="_blank" rel="noopener noreferrer">literal 80mm example</a>.</li>
 <li><strong>Set it on the POS Profile</strong>Assign the Print Format to your POS Profile. Your POS sees the marker and routes receipts to <code>localhost:5058</code>.</li>
-<li><strong>Open the control panel</strong>Visit <code>http://localhost:5058/</code> to pick your default printer, review the log and fire a test print. On Windows you can also use the tray icon.</li>
+<li><strong>Open the control panel</strong>Visit <code>http://localhost:5058/</code> to pick your default printer, choose copies per document, review the log and fire a test print. On Windows you can also use the tray icon.</li>
 </ol>
 <div>
 <div class="glance"><h3>Service at a glance</h3><div class="gr"><span>Endpoint</span><div><code>http://127.0.0.1:5058</code></div></div><div class="gr"><span>Platforms</span><div>Linux · Windows</div></div><div class="gr"><span>Print speed</span><div>~0.5–1s per receipt</div></div><div class="gr"><span>Paper widths</span><div>58mm &amp; 80mm</div></div><div class="gr"><span>Print modes</span><div>Literal (recommended) · Modeled</div></div><div class="gr"><span>Stack</span><div>Python · FastAPI · BeautifulSoup</div></div><div class="gr"><span>Auto-update</span><div>Standalone updater + version probe</div></div><div class="gr"><span>License</span><div>MIT</div></div></div>
