@@ -47,6 +47,10 @@ class Config:
     DEFAULT_PAPER_WIDTH: int = 58  # mm (58mm thermal paper)
     DEFAULT_CHARS_PER_LINE: int = 32  # Characters per line for 58mm paper
 
+    # Copies printed per document (selectable in the Control Panel)
+    DEFAULT_COPIES: int = 1
+    ALLOWED_COPIES: tuple = (1, 2, 3)
+
     # ESC/POS settings
     ENCODING: str = "cp437"  # Standard encoding for ESC/POS printers
 
@@ -129,6 +133,23 @@ class Config:
     def set_default_printer(cls, name: str) -> None:
         settings = cls.load_settings()
         settings["default_printer"] = name
+        cls.save_settings(settings)
+
+    @classmethod
+    def get_copies(cls) -> int:
+        """Persisted number of copies per print job (1-3, default 1)."""
+        try:
+            copies = int(cls.load_settings().get("copies", cls.DEFAULT_COPIES))
+        except (TypeError, ValueError):
+            return cls.DEFAULT_COPIES
+        return copies if copies in cls.ALLOWED_COPIES else cls.DEFAULT_COPIES
+
+    @classmethod
+    def set_copies(cls, copies: int) -> None:
+        if copies not in cls.ALLOWED_COPIES:
+            raise ValueError(f"copies must be one of {cls.ALLOWED_COPIES}")
+        settings = cls.load_settings()
+        settings["copies"] = copies
         cls.save_settings(settings)
 
     @classmethod
