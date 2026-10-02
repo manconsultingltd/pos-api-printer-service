@@ -293,6 +293,9 @@ class PrintRequest(BaseModel):
     size: int = Field(default=58, description="Paper size in mm")
     data: InvoiceData
     options: Optional[PrintOptions] = None
+    copies: Optional[int] = Field(
+        default=None, ge=1, le=3, description="Copies to print (1-3); defaults to the saved setting"
+    )
 
 
 class PrintResponse(BaseModel):
@@ -325,6 +328,9 @@ class PrintHtmlRequest(BaseModel):
     paper_width: int = Field(default=58, description="Paper width in mm (58 or 80)")
     open_drawer: bool = Field(
         default=False, description="Open cash drawer after printing"
+    )
+    copies: Optional[int] = Field(
+        default=None, ge=1, le=3, description="Copies to print (1-3); defaults to the saved setting"
     )
 
 
@@ -433,8 +439,9 @@ def print_receipt(request: PrintRequest):
         logger.debug("Generating ESC/POS commands...")
         generator = ESCPOSGenerator(paper_width=paper_width)
         invoice_dict = request.data.dict()
-        escpos_bytes = generator.generate_receipt(invoice_dict)
-        logger.debug(f"Generated {len(escpos_bytes)} bytes of ESC/POS data")
+        copies = request.copies or Config.get_copies()
+        escpos_bytes = generator.generate_receipt(invoice_dict) * copies
+        logger.debug(f"Generated {len(escpos_bytes)} bytes of ESC/POS data ({copies} copies)")
 
         # Print to CUPS
         logger.debug(f"Sending to CUPS printer: {request.printer}")
@@ -529,8 +536,9 @@ def print_from_html(request: PrintHtmlRequest):
             f"Generating ESC/POS commands for {request.paper_width}mm paper..."
         )
         generator = ESCPOSGenerator(paper_width=request.paper_width)
-        escpos_bytes = generator.generate_receipt(invoice_data)
-        logger.debug(f"Generated {len(escpos_bytes)} bytes of ESC/POS data")
+        copies = request.copies or Config.get_copies()
+        escpos_bytes = generator.generate_receipt(invoice_data) * copies
+        logger.debug(f"Generated {len(escpos_bytes)} bytes of ESC/POS data ({copies} copies)")
 
         # Prepend cash drawer command so it opens immediately
         drawer_cmd = ESCPOSGenerator.cash_drawer_pulse()
@@ -774,22 +782,30 @@ class SettingsModel(BaseModel):
     """Persisted service settings"""
 
     default_printer: Optional[str] = None
+    copies: Optional[int] = Field(default=None, ge=1, le=3)
 
 
 @app.get("/api/settings")
 def get_settings():
-    """Return persisted service settings (default printer, etc.)."""
-    return {"default_printer": Config.get_default_printer()}
+    """Return persisted service settings (default printer, copies)."""
+    return {"default_printer": Config.get_default_printer(), "copies": Config.get_copies()}
 
 
 @app.put("/api/settings")
 def update_settings(settings: SettingsModel):
-    """Update persisted service settings. Currently only default_printer."""
+    """Update persisted service settings (default_printer, copies)."""
     try:
         if settings.default_printer is not None:
             Config.set_default_printer(settings.default_printer)
             logger.info(f"Default printer set to: {settings.default_printer}")
-        return {"success": True, "default_printer": Config.get_default_printer()}
+        if settings.copies is not None:
+            Config.set_copies(settings.copies)
+            logger.info(f"Copies set to: {settings.copies}")
+        return {
+            "success": True,
+            "default_printer": Config.get_default_printer(),
+            "copies": Config.get_copies(),
+        }
     except OSError as e:
         logger.error(f"Failed to persist settings: {e}")
         raise HTTPException(

@@ -202,6 +202,12 @@
           <option value="58">58 mm</option>
           <option value="80">80 mm</option>
         </select>
+        <label for="copies">Copies:</label>
+        <select id="copies">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
         <button id="btn-test">Print test page</button>
       </div>
     </div>
@@ -358,6 +364,7 @@
         api("GET", "/api/settings"),
       ]);
       defaultPrinter = (settings && settings.default_printer) || null;
+      $("copies").value = String((settings && settings.copies) || 1);
       renderPrinters(printers.printers || []);
     } catch (e) {
       renderPrinters([]);
@@ -397,6 +404,16 @@
   }
 
   $("btn-refresh").addEventListener("click", refreshPrinters);
+
+  $("copies").addEventListener("change", async () => {
+    const copies = parseInt($("copies").value, 10) || 1;
+    try {
+      await api("PUT", "/api/settings", { copies });
+      log(`✓ Copies per document: ${copies}.`, "ok");
+    } catch (e) {
+      log("✗ Could not save copies: " + e.message, "fail");
+    }
+  });
 
   $("btn-test").addEventListener("click", async () => {
     const printer = defaultPrinter;
