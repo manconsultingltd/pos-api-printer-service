@@ -150,10 +150,10 @@ curl http://localhost:5058/health
 # List printers
 curl http://localhost:5058/api/printers
 
-# Print from receipt HTML
+# Print from receipt HTML ("copies" is optional: 1-3, defaults to the saved setting)
 curl -X POST http://localhost:5058/api/print-html \
   -H "Content-Type: application/json" \
-  -d '{"printer":"ThermalPrinter","html":"<html>...</html>","paper_width":58}'
+  -d '{"printer":"ThermalPrinter","html":"<html>...</html>","paper_width":58,"copies":2}'
 
 # Test print
 curl -X POST http://localhost:5058/api/test-print \
@@ -166,8 +166,13 @@ curl -X POST http://localhost:5058/api/cash-drawer \
   -d '{"printer":"ThermalPrinter"}'
 ```
 
-A control panel (set/inspect the default printer, view the log, test print)
-is served at `http://localhost:5058/`.
+A control panel (set/inspect the default printer, choose copies per document,
+view the log, test print) is served at `http://localhost:5058/`.
+
+Copies (1, 2 or 3; default 1) are saved via the control panel or
+`PUT /api/settings` with `{"copies": 2}`, and apply to `/api/print` and
+`/api/print-html`. All copies go in one job, each one cut separately; the cash
+drawer opens once. The test page always prints a single copy.
 
 ## Install
 

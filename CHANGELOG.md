@@ -9,6 +9,9 @@ and this project adheres to
 ## [Unreleased]
 
 ### Added
+- Configurable print copies (1, 2 or 3; default 1): **Copies** dropdown in the
+  control panel, `copies` in `/api/settings`, and an optional `copies` field on
+  `/api/print` and `/api/print-html`. Each copy is cut separately.
 - Product landing page (`docs/index.html`) deployed to GitHub Pages via
   `.github/workflows/pages.yml`.
 - Open-source community files: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
