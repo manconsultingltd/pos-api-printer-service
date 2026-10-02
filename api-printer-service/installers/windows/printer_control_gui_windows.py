@@ -45,6 +45,7 @@ RELEASE_URL_PREFIX_RE = re.compile(
 APP_NAME = "API Printer Service"
 TASK_NAME = "API Printer Service"
 DEFAULT_PAPER_WIDTH = 58
+COPIES_CHOICES = ("1", "2", "3")
 REFRESH_INTERVAL_MS = 10_000
 
 # Map the (state, http_up) tuple to (colour, label).
@@ -113,6 +114,14 @@ class PrinterServiceClient:
             return True
         except (HTTPError, URLError, TimeoutError, ConnectionError, OSError) as e:
             log.error("set_default_printer failed: %s", e)
+            return False
+
+    def set_copies(self, copies: int) -> bool:
+        try:
+            self._request("PUT", "/api/settings", {"copies": copies})
+            return True
+        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError) as e:
+            log.error("set_copies failed: %s", e)
             return False
 
     def test_print(self, printer: str, paper_width: int = DEFAULT_PAPER_WIDTH) -> dict:
@@ -486,6 +495,14 @@ class PrinterControlApp:
         self.paper_combo.set("58")
         self.paper_combo.pack(side="left", padx=(6, 0))
 
+        ttk.Label(action_frame, text="Copies:").pack(side="left", padx=(12, 0))
+        self.copies_combo = ttk.Combobox(
+            action_frame, values=COPIES_CHOICES, state="readonly", width=4,
+        )
+        self.copies_combo.set("1")
+        self.copies_combo.pack(side="left", padx=(6, 0))
+        self.copies_combo.bind("<<ComboboxSelected>>", self._on_copies_changed)
+
         self.set_default_btn = ttk.Button(
             action_frame, text="Set as default",
             command=self._on_set_default_clicked,
@@ -806,6 +823,20 @@ class PrinterControlApp:
         webbrowser.open(url)
         self._log(f"Opened release page for v{self.update_state.get('available_version')}.")
 
+    def _on_copies_changed(self, _event=None) -> None:
+        copies = int(self.copies_combo.get() or 1)
+
+        def work():
+            return self.client.set_copies(copies)
+
+        def done(result):
+            if isinstance(result, Exception) or not result:
+                self._log(f"Could not save copies ({copies}).", "err")
+                return
+            self._log(f"Copies per document: {copies}.")
+
+        self._run_bg(work, done)
+
     def _on_update_channel_changed(self, _event=None) -> None:
         if getattr(self, "_applying_channel", False):
             return
@@ -1067,6 +1098,10 @@ class PrinterControlApp:
         # from schtasks /Run).
         if up and state != "running":
             state = "running"
+
+        copies = str((settings or {}).get("copies", ""))
+        if copies in COPIES_CHOICES:
+            self.copies_combo.set(copies)
 
         self.service_state = state
         self.service_up = up

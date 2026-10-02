@@ -54,6 +54,7 @@ APP_ID = "api-printer-service"
 APP_NAME = "API Printer Service"
 SERVICE_UNIT = "api-printer.service"
 DEFAULT_PAPER_WIDTH = 58
+COPIES_CHOICES = ("1", "2", "3")
 REFRESH_INTERVAL_SECONDS = 10
 
 # Map systemd ActiveState values to (icon colour, human-readable label).
@@ -123,6 +124,14 @@ class PrinterServiceClient:
             return True
         except (HTTPError, URLError, TimeoutError, ConnectionError, OSError) as e:
             log.error("set_default_printer failed: %s", e)
+            return False
+
+    def set_copies(self, copies: int) -> bool:
+        try:
+            self._request("PUT", "/api/settings", {"copies": copies})
+            return True
+        except (HTTPError, URLError, TimeoutError, ConnectionError, OSError) as e:
+            log.error("set_copies failed: %s", e)
             return False
 
     def test_print(self, printer: str, paper_width: int = DEFAULT_PAPER_WIDTH) -> dict:
@@ -418,6 +427,14 @@ class PrinterTrayApp:
             self.paper_combo.append_text(w)
         self.paper_combo.set_active(0)
         action_row.pack_start(self.paper_combo, False, False, 0)
+
+        action_row.pack_start(Gtk.Label(label="Copies:"), False, False, 0)
+        self.copies_combo = Gtk.ComboBoxText()
+        for c in COPIES_CHOICES:
+            self.copies_combo.append_text(c)
+        self.copies_combo.set_active(0)
+        self.copies_combo.connect("changed", self._on_copies_changed)
+        action_row.pack_start(self.copies_combo, False, False, 0)
 
         self.test_button = Gtk.Button(label="Print test page")
         self.test_button.connect("clicked", self._on_test_print_clicked)
@@ -830,6 +847,7 @@ class PrinterTrayApp:
 
     def _apply_state(self, state: str, up: bool, printers: list[dict],
                      settings: dict) -> None:
+        self._apply_copies(settings)
         self.service_state = state
         self.service_up = up
         self.printers = printers
@@ -929,6 +947,31 @@ class PrinterTrayApp:
             for row in self.printer_store:
                 row[0] = row[1] == name
             self._rebuild_tray_menu()
+
+        self._run_bg(work, done)
+
+    def _apply_copies(self, settings: dict) -> None:
+        copies = str((settings or {}).get("copies", ""))
+        if copies in COPIES_CHOICES and copies != self.copies_combo.get_active_text():
+            self._applying_copies = True
+            try:
+                self.copies_combo.set_active(COPIES_CHOICES.index(copies))
+            finally:
+                self._applying_copies = False
+
+    def _on_copies_changed(self, _combo=None) -> None:
+        if getattr(self, "_applying_copies", False):
+            return
+        copies = int(self.copies_combo.get_active_text() or 1)
+
+        def work():
+            return self.client.set_copies(copies)
+
+        def done(result):
+            if isinstance(result, Exception) or not result:
+                self._log(f"✗ Could not save copies ({copies}).")
+                return
+            self._log(f"✓ Copies per document: {copies}.")
 
         self._run_bg(work, done)
 
