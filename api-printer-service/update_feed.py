@@ -19,7 +19,9 @@ from __future__ import annotations
 import json
 import re
 import ssl
+import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 REPO_SLUG = "manconsultingltd/pos-api-printer-service"
@@ -60,8 +62,22 @@ def https_context() -> ssl.SSLContext:
 
 
 def urlopen(req: urllib.request.Request, timeout: float):
-    """urllib.request.urlopen with the update TLS context."""
-    return urllib.request.urlopen(req, timeout=timeout, context=https_context())
+    """urllib.request.urlopen with the update TLS context.
+
+    Certificate failures are re-raised with a precise cause so the update
+    state/log tells a missing CA apart from a POS clock that is off.
+    """
+    try:
+        return urllib.request.urlopen(req, timeout=timeout, context=https_context())
+    except urllib.error.URLError as e:
+        reason = getattr(e, "reason", None)
+        if not isinstance(reason, ssl.SSLCertVerificationError):
+            raise
+        detail = reason.verify_message or str(reason)
+        if "not yet valid" in detail or "expired" in detail:
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            detail += f" (check the system clock: this machine reports {now})"
+        raise urllib.error.URLError(f"SSL certificate verification failed: {detail}") from e
 
 # Platform → asset name published by release.yml
 PLATFORM_ASSETS = {
