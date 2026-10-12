@@ -237,3 +237,4 @@ endpoint contract, and Windows printer enumeration.
 ## License
 
 Released under the [MIT License](LICENSE) © 2026 MAN Consulting Ltd.
+
