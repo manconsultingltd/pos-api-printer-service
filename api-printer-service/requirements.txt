@@ -16,6 +16,10 @@ httpx==0.25.1
 # Logging (enhanced)
 python-json-logger==2.0.7
 
+# CA bundle for the self-updater's HTTPS (GitHub) — the bundled Windows
+# Python / macOS python.org builds may lack the needed root certificates
+certifi==2024.8.30
+
 # HTML parsing (for /api/print-html endpoint)
 beautifulsoup4==4.12.2
 lxml==4.9.3
