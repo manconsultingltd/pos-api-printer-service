@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import ssl
 import urllib.request
 from typing import Any, Callable, Dict, List, Optional
 
@@ -37,6 +38,30 @@ _TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 # check run forever.
 RELEASES_PER_PAGE = 30
 MAX_PAGES = 3
+
+
+def https_context() -> ssl.SSLContext:
+    """Verifying TLS context for update traffic (GitHub API + asset downloads).
+
+    The OS trust store alone is not reliable here: the bundled Windows Python
+    only sees roots already cached in the Windows store (a fresh POS box may
+    not have fetched GitHub's CA yet), and python.org builds on macOS ship
+    with no CA store at all. So trust the OS store AND the certifi bundle when
+    available. Verification is never disabled.
+    """
+    ctx = ssl.create_default_context()
+    try:
+        import certifi  # optional: the stdlib-only Linux updater may lack it
+
+        ctx.load_verify_locations(cafile=certifi.where())
+    except Exception:
+        pass
+    return ctx
+
+
+def urlopen(req: urllib.request.Request, timeout: float):
+    """urllib.request.urlopen with the update TLS context."""
+    return urllib.request.urlopen(req, timeout=timeout, context=https_context())
 
 # Platform → asset name published by release.yml
 PLATFORM_ASSETS = {
@@ -194,7 +219,7 @@ def _default_fetch_page(page: int) -> List[Any]:
             "User-Agent": f"api-printer-service/{_current_version_or_unknown()}",
         },
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urlopen(req, timeout=15) as resp:
         if resp.status != 200:
             raise RuntimeError(f"GitHub returned {resp.status}")
         body = json.load(resp)
