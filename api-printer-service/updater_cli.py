@@ -36,7 +36,7 @@ import time
 import urllib.request
 
 from update_feed import (
-    https_context,
+    urlopen,
     REPO_SLUG,
     collect_releases,
     is_release_page_url,
@@ -152,7 +152,7 @@ def _download(release_url: str, asset_name: str) -> str:
     )
     fd, path = tempfile.mkstemp(prefix="api-printer-update-", suffix=".exe")
     try:
-        with urllib.request.urlopen(req, timeout=60, context=https_context()) as resp, os.fdopen(fd, "wb") as f:
+        with urlopen(req, timeout=60) as resp, os.fdopen(fd, "wb") as f:
             if resp.status != 200:
                 raise RuntimeError(f"download returned {resp.status}")
             total = 0

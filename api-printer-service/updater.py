@@ -29,7 +29,7 @@ import urllib.request
 from typing import Any, Dict, Optional
 
 from update_feed import (
-    https_context,
+    urlopen,
     RELEASES_API,
     RELEASES_PER_PAGE,
     REPO_SLUG,
@@ -221,7 +221,7 @@ class Updater:
                     "User-Agent": f"api-printer-service/{self.current_version}",
                 },
             )
-            with urllib.request.urlopen(req, timeout=15, context=https_context()) as resp:
+            with urlopen(req, timeout=15) as resp:
                 if resp.status != 200:
                     raise UpdateError(f"GitHub returned {resp.status}")
                 body = _json.load(resp)
@@ -358,7 +358,7 @@ class Updater:
             self._dbg(f"temp file: {path}")
         total = 0
         try:
-            with urllib.request.urlopen(req, timeout=60, context=https_context()) as resp, \
+            with urlopen(req, timeout=60) as resp, \
                     os.fdopen(fd, "wb") as f:
                 if debug:
                     self._dbg(f"HTTP {resp.status} — final URL: {resp.geturl()}")
